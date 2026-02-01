@@ -20,57 +20,68 @@ import {
 } from 'lucide-react';
 import AnimatedBackground from '../components/AnimatedBackground';
 import { useToast } from '../components/ToastProvider';
+import { useAuth } from '../context/AuthContext';
 
 const LoginPage = () => {
-  const [mode, setMode] = useState('main'); // 'main' | 'login' | 'signup' | 'join'
-  const [authMethod, setAuthMethod] = useState('options'); // 'options' | 'email'
+  const [mode, setMode] = useState('main'); // 'main' | 'join' | 'login'
+  const [sessionCode, setSessionCode] = useState('');
+  const [loading, setLoading] = useState(false);
   const [isLogin, setIsLogin] = useState(true);
-  
-  // Form states
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
-  const [sessionCode, setSessionCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [selectedRole, setSelectedRole] = useState('student');
   
   const navigate = useNavigate();
   const toast = useToast();
+  const { loginWithGitHub, loginWithGoogle, register, login } = useAuth();
 
   const handleGitHubLogin = () => {
     setLoading(true);
-    toast.info('Authenticating', 'Connecting to GitHub...');
-    // In production: window.location.href = `${API_URL}/auth/github`;
-    setTimeout(() => {
-      toast.success('Welcome!', 'Successfully logged in with GitHub');
-      navigate('/dashboard');
-    }, 1200);
+    toast.info('Authenticating', 'Redirecting to GitHub...');
+    loginWithGitHub();
   };
 
   const handleGoogleLogin = () => {
     setLoading(true);
-    toast.info('Authenticating', 'Connecting to Google...');
-    // In production: window.location.href = `${API_URL}/auth/google`;
-    setTimeout(() => {
-      toast.success('Welcome!', 'Successfully logged in with Google');
-      navigate('/dashboard');
-    }, 1200);
+    toast.info('Authenticating', 'Redirecting to Google...');
+    loginWithGoogle();
   };
 
   const handleEmailSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
     setError('');
-    
-    toast.info('Authenticating', 'Verifying your credentials...');
-    
-    // Simulate API call
-    setTimeout(() => {
+    setLoading(true);
+
+    try {
+      if (isLogin) {
+        // Login
+        if (!email || !password) {
+          throw new Error('Please enter email and password');
+        }
+        await login(email, password);
+        toast.success('Welcome back!', 'Logged in successfully');
+        navigate('/dashboard');
+      } else {
+        // Register
+        if (!name || !email || !password) {
+          throw new Error('Please fill in all fields');
+        }
+        if (password.length < 6) {
+          throw new Error('Password must be at least 6 characters');
+        }
+        await register(name, email, password, selectedRole);
+        toast.success('Account created!', 'Welcome to CodeSync');
+        navigate(selectedRole === 'teacher' ? '/dashboard' : '/classroom');
+      }
+    } catch (err) {
+      setError(err.message);
+      toast.error('Error', err.message);
+    } finally {
       setLoading(false);
-      toast.success('Welcome back!', 'Successfully logged in');
-      navigate('/dashboard');
-    }, 1000);
+    }
   };
 
   const handleJoinSession = (e) => {
@@ -78,6 +89,7 @@ const LoginPage = () => {
     if (sessionCode.trim()) {
       setLoading(true);
       toast.info('Joining', `Connecting to session ${sessionCode}...`);
+      // For now, redirect to classroom - will implement session joining later
       setTimeout(() => {
         toast.success('Connected!', 'You have joined the session');
         navigate('/classroom');
@@ -159,19 +171,6 @@ const LoginPage = () => {
                     <Github className="w-5 h-5 group-hover:rotate-12 transition-transform" />
                     Continue with GitHub
                   </button>
-
-                  <button
-                    onClick={handleGoogleLogin}
-                    className="w-full flex items-center justify-center gap-3 px-4 py-3.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 rounded-xl font-medium transition-all hover:scale-[1.02] active:scale-[0.98]"
-                  >
-                    <svg className="w-5 h-5" viewBox="0 0 24 24">
-                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-                    </svg>
-                    Continue with Google
-                  </button>
                 </div>
 
                 {/* Divider */}
@@ -181,7 +180,7 @@ const LoginPage = () => {
                   <div className="flex-1 h-px bg-zinc-700" />
                 </div>
 
-                {/* Email Button */}
+                {/* Email Button - Coming Soon */}
                 <button
                   onClick={() => setMode('login')}
                   className="w-full flex items-center justify-center gap-3 px-4 py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 rounded-xl font-medium transition-all hover:scale-[1.02] active:scale-[0.98] hover:shadow-lg hover:shadow-indigo-500/25"
@@ -321,18 +320,53 @@ const LoginPage = () => {
           {/* Email Form */}
           <form onSubmit={handleEmailSubmit} className="space-y-4">
             {!isLogin && (
-              <div>
-                <label className="block text-sm font-medium text-zinc-400 mb-1.5">
-                  Full Name
-                </label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="John Doe"
-                  className="w-full px-4 py-3 bg-zinc-800 border border-zinc-600 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
-                />
-              </div>
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-zinc-400 mb-1.5">
+                    Full Name
+                  </label>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="John Doe"
+                    className="w-full px-4 py-3 bg-zinc-800 border border-zinc-600 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                  />
+                </div>
+
+                {/* Role Selection */}
+                <div>
+                  <label className="block text-sm font-medium text-zinc-400 mb-1.5">
+                    I am a
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRole('student')}
+                      className={`px-4 py-3 rounded-xl border font-medium transition-all ${
+                        selectedRole === 'student'
+                          ? 'bg-indigo-600 border-indigo-500 text-white'
+                          : 'bg-zinc-800 border-zinc-600 text-zinc-400 hover:border-zinc-500'
+                      }`}
+                    >
+                      <Users className="w-5 h-5 mx-auto mb-1" />
+                      Student
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRole('teacher')}
+                      className={`px-4 py-3 rounded-xl border font-medium transition-all ${
+                        selectedRole === 'teacher'
+                          ? 'bg-purple-600 border-purple-500 text-white'
+                          : 'bg-zinc-800 border-zinc-600 text-zinc-400 hover:border-zinc-500'
+                      }`}
+                    >
+                      <Sparkles className="w-5 h-5 mx-auto mb-1" />
+                      Teacher
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
 
             <div>

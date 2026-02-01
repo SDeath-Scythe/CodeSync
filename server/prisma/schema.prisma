@@ -1,0 +1,66 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// User model - supports both OAuth and email/password auth
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String
+  password      String?   // Null for OAuth users
+  avatar        String?
+  role          String    @default("student") // 'teacher' or 'student'
+  
+  // OAuth fields
+  provider      String?   // 'github', 'google', or 'email'
+  providerId    String?   // ID from OAuth provider
+  
+  // Timestamps
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
+  sessionsOwned Session[] @relation("SessionOwner")
+  sessionsJoined SessionParticipant[]
+  
+  @@unique([provider, providerId])
+}
+
+// Coding session model
+model Session {
+  id          String    @id @default(cuid())
+  code        String    @unique // Session code like "ABC-123"
+  title       String
+  description String?
+  isActive    Boolean   @default(true)
+  
+  // Owner (teacher)
+  ownerId     String
+  owner       User      @relation("SessionOwner", fields: [ownerId], references: [id])
+  
+  // Participants
+  participants SessionParticipant[]
+  
+  // Timestamps
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+// Session participants (students who joined)
+model SessionParticipant {
+  id        String   @id @default(cuid())
+  sessionId String
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt  DateTime @default(now())
+  
+  @@unique([sessionId, userId])
+}
