@@ -17,6 +17,7 @@ import {
 import AnimatedBackground from '../components/AnimatedBackground';
 import { useToast } from '../components/ToastProvider';
 import { useAuth } from '../context/AuthContext';
+import sessionService from '../services/sessionService';
 
 const SessionHub = () => {
   const [mode, setMode] = useState('main'); // 'main' | 'join' | 'create'
@@ -39,14 +40,14 @@ const SessionHub = () => {
 
     setLoading(true);
     try {
-      // TODO: Call API to join session
-      toast.info('Joining', `Connecting to session ${sessionCode}...`);
+      const session = await sessionService.joinSession(sessionCode);
+      toast.success('Connected!', `Joined "${session.title}"`);
       
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 800));
+      // Store current session in localStorage for the classroom/editor to use
+      localStorage.setItem('codesync_current_session', JSON.stringify(session));
       
-      toast.success('Connected!', 'You have joined the session');
-      navigate('/classroom');
+      // Navigate based on role - teachers go to editor, students go to classroom
+      navigate(isTeacher ? '/editor' : '/classroom');
     } catch (err) {
       toast.error('Error', err.message || 'Failed to join session');
     } finally {
@@ -63,19 +64,9 @@ const SessionHub = () => {
 
     setLoading(true);
     try {
-      // TODO: Call API to create session
-      toast.info('Creating', 'Setting up your session...');
-      
-      // Simulate API call - generate random code
-      await new Promise(resolve => setTimeout(resolve, 800));
-      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-      let code = '';
-      for (let i = 0; i < 3; i++) code += chars[Math.floor(Math.random() * chars.length)];
-      code += '-';
-      for (let i = 0; i < 3; i++) code += chars[Math.floor(Math.random() * chars.length)];
-      
-      setCreatedSession({ name: sessionName, code });
-      toast.success('Session Created!', `Your session code is ${code}`);
+      const session = await sessionService.createSession(sessionName);
+      setCreatedSession(session);
+      toast.success('Session Created!', `Your session code is ${session.code}`);
     } catch (err) {
       toast.error('Error', err.message || 'Failed to create session');
     } finally {
@@ -93,6 +84,8 @@ const SessionHub = () => {
   };
 
   const goToSession = () => {
+    // Store current session for the editor to use
+    localStorage.setItem('codesync_current_session', JSON.stringify(createdSession));
     navigate('/editor');
   };
 
@@ -269,7 +262,7 @@ const SessionHub = () => {
               </div>
 
               <h2 className="text-2xl font-bold text-white mb-2">Session Created!</h2>
-              <p className="text-zinc-400 text-sm mb-6">{createdSession.name}</p>
+              <p className="text-zinc-400 text-sm mb-6">{createdSession.title}</p>
 
               <div className="mb-6">
                 <p className="text-zinc-500 text-xs uppercase tracking-wider mb-2">Session Code</p>
