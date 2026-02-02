@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
         Mic,
         MicOff,
@@ -33,26 +33,53 @@ const EMOJIS = ['👍', '❤️', '😊', '🎉', '🤔', '👏', '🔥', '💡'
 const VideoTile = ({ user, stream, isLocal = false }) => {
         const videoRef = useRef(null);
         
-        // Attach video stream when available
+        // Attach stream whenever it changes
         useEffect(() => {
-                if (videoRef.current && stream) {
-                        videoRef.current.srcObject = stream;
+                const video = videoRef.current;
+                if (video && stream) {
+                        video.srcObject = stream;
+                        // Force play
+                        video.play().catch(e => console.log('Autoplay blocked:', e));
+                        
+                        // Log stream info for debugging
+                        console.log('🎥 VideoTile mounted with stream:', {
+                                videoTracks: stream.getVideoTracks().length,
+                                audioTracks: stream.getAudioTracks().length,
+                                videoEnabled: stream.getVideoTracks()[0]?.enabled,
+                                videoState: stream.getVideoTracks()[0]?.readyState
+                        });
                 }
+                
+                return () => {
+                        if (video) {
+                                video.srcObject = null;
+                        }
+                };
         }, [stream]);
         
-        const hasVideo = stream && user?.videoEnabled !== false;
+        // Determine if we should show video or avatar
+        const hasVideoTrack = stream?.getVideoTracks()?.length > 0;
+        const showVideo = stream && hasVideoTrack && user?.videoEnabled !== false;
         
         return (
                 <div className={`relative aspect-video bg-zinc-900/50 rounded-xl overflow-hidden border-2 transition-all duration-300 ${user?.isSpeaking ? 'border-indigo-500/50 shadow-lg shadow-indigo-500/20 scale-[1.02]' : 'border-zinc-700/30 hover:border-zinc-600/50'}`}>
-                        {hasVideo ? (
+                        {/* Video element - always present when stream exists */}
+                        {stream && (
                                 <video
                                         ref={videoRef}
                                         autoPlay
                                         playsInline
-                                        muted={isLocal} // Mute local video to prevent feedback
+                                        muted={isLocal}
+                                        style={{ 
+                                                display: showVideo ? 'block' : 'none',
+                                                transform: isLocal ? 'scaleX(-1)' : 'none' // Mirror local video for natural look
+                                        }}
                                         className="w-full h-full object-cover"
                                 />
-                        ) : (
+                        )}
+                        
+                        {/* Avatar fallback when no video */}
+                        {!showVideo && (
                                 <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-zinc-800/50 to-zinc-900/50 backdrop-blur-sm">
                                         <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
                                                 <span className="text-lg font-bold text-white">{(user?.name || user?.userName || 'U').charAt(0)}</span>

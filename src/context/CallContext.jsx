@@ -206,13 +206,45 @@ export const CallProvider = ({ children }) => {
   }, []);
 
   // Toggle video
-  const toggleVideo = useCallback(() => {
+  const toggleVideo = useCallback(async () => {
     if (localStreamRef.current) {
       const videoTrack = localStreamRef.current.getVideoTracks()[0];
+      
       if (videoTrack) {
+        // Toggle existing video track
         videoTrack.enabled = !videoTrack.enabled;
         setIsVideoEnabled(videoTrack.enabled);
         socketService.toggleMedia('video', videoTrack.enabled);
+        console.log('📹 Toggled video track:', videoTrack.enabled);
+      } else {
+        // No video track exists - need to get camera
+        console.log('📹 No video track, requesting camera...');
+        try {
+          const videoStream = await navigator.mediaDevices.getUserMedia({
+            video: { 
+              width: { ideal: 640 },
+              height: { ideal: 480 },
+              facingMode: 'user'
+            }
+          });
+          
+          const newVideoTrack = videoStream.getVideoTracks()[0];
+          if (newVideoTrack) {
+            // Add the new video track to existing stream
+            localStreamRef.current.addTrack(newVideoTrack);
+            
+            // Update state - need to create new stream reference to trigger re-render
+            const updatedStream = new MediaStream(localStreamRef.current.getTracks());
+            localStreamRef.current = updatedStream;
+            setLocalStream(updatedStream);
+            setIsVideoEnabled(true);
+            socketService.toggleMedia('video', true);
+            
+            console.log('📹 Added new video track to stream');
+          }
+        } catch (error) {
+          console.error('Failed to get camera:', error);
+        }
       }
     }
   }, []);

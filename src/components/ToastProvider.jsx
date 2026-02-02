@@ -46,8 +46,8 @@ const Toast = ({ id, type, title, message, onClose }) => {
                 <div
                         className={`
         flex items-start gap-3 p-4 rounded-xl border-l-4 ${config.borderClass} ${config.bgClass}
-        bg-zinc-900/95 backdrop-blur-xl border border-zinc-700/50 shadow-2xl
-        animate-slide-in-right min-w-[320px] max-w-[420px]
+        bg-zinc-900/85 backdrop-blur-xl border border-zinc-700/50 shadow-2xl
+        animate-slide-down min-w-[320px] max-w-[420px]
       `}
                 >
                         <Icon className={`w-5 h-5 ${config.iconClass} shrink-0 mt-0.5`} />
@@ -103,8 +103,8 @@ export const ToastProvider = ({ children }) => {
                 <ToastContext.Provider value={toast}>
                         {children}
 
-                        {/* Toast Container - positioned top-right to avoid blocking bottom controls */}
-                        <div className="fixed top-4 right-4 z-[100] flex flex-col gap-3">
+                        {/* Toast Container - positioned top center */}
+                        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center gap-3">
                                 {toasts.map(t => (
                                         <Toast
                                                 key={t.id}
@@ -116,18 +116,18 @@ export const ToastProvider = ({ children }) => {
 
                         {/* Animation Styles */}
                         <style>{`
-        @keyframes slide-in-right {
+        @keyframes slide-down {
           from {
             opacity: 0;
-            transform: translateX(100%);
+            transform: translateY(-20px);
           }
           to {
             opacity: 1;
-            transform: translateX(0);
+            transform: translateY(0);
           }
         }
-        .animate-slide-in-right {
-          animation: slide-in-right 0.3s ease-out forwards;
+        .animate-slide-down {
+          animation: slide-down 0.3s ease-out forwards;
         }
       `}</style>
                 </ToastContext.Provider>
