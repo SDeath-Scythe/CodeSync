@@ -444,7 +444,7 @@ const SideBar = () => {
   return (
     <div 
       ref={sidebarRef}
-      className="w-64 bg-gradient-to-b from-[#1e1e2e] to-[#181825] border-r border-[#313244] flex flex-col h-full overflow-hidden"
+      className="w-full bg-gradient-to-b from-[#1e1e2e] to-[#181825] border-r border-[#313244] flex flex-col h-full overflow-hidden"
       onDragOver={handleSidebarDragOver}
       onDrop={handleSidebarDrop}
     >

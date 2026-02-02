@@ -9,7 +9,9 @@ import {
         Send,
         Hand,
         Smile,
-        PhoneOff
+        PhoneOff,
+        ChevronDown,
+        ChevronRight
 } from 'lucide-react';
 import { useToast } from './ToastProvider';
 import { useNavigate } from 'react-router-dom';
@@ -135,6 +137,34 @@ const EmojiPicker = ({ onSelect, onClose }) => (
         </div>
 );
 
+// Collapsible Section for Stream content
+const StreamSection = ({ title, icon, defaultExpanded = true, children, badge }) => {
+        const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+        
+        return (
+                <div className="mb-2">
+                        <button
+                                onClick={() => setIsExpanded(!isExpanded)}
+                                className="w-full flex items-center gap-2 py-1 hover:bg-zinc-800/30 rounded transition-colors group"
+                        >
+                                {isExpanded ? (
+                                        <ChevronDown className="w-3 h-3 text-zinc-500" />
+                                ) : (
+                                        <ChevronRight className="w-3 h-3 text-zinc-500" />
+                                )}
+                                {icon}
+                                <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider group-hover:text-zinc-400 transition-colors">
+                                        {title}
+                                </span>
+                                {badge && <span className="ml-auto text-[10px] text-zinc-600">{badge}</span>}
+                        </button>
+                        <div className={`overflow-hidden transition-all duration-200 ease-out ${isExpanded ? 'max-h-[1000px] opacity-100 mt-2' : 'max-h-0 opacity-0'}`}>
+                                {children}
+                        </div>
+                </div>
+        );
+};
+
 // --- MAIN COMPONENT ---
 
 const ClassroomPanel = () => {
@@ -254,23 +284,29 @@ const ClassroomPanel = () => {
                         </div>
 
                         {/* SCROLLABLE CONTENT */}
-                        <div className="flex-1 overflow-y-auto custom-scrollbar p-3 flex flex-col gap-3">
+                        <div className="flex-1 overflow-y-auto custom-scrollbar p-3 flex flex-col gap-1">
                                 {activeTab === 'stream' && (
                                         <>
-                                                <div className="mb-2">
-                                                        <span className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase tracking-wider flex items-center gap-2">
-                                                                <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                                                                Active Speaker
-                                                        </span>
+                                                <StreamSection 
+                                                        title="Active Speaker" 
+                                                        icon={<div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />}
+                                                        defaultExpanded={true}
+                                                >
                                                         <VideoTile user={PARTICIPANTS[0]} />
-                                                </div>
+                                                </StreamSection>
 
-                                                <span className="text-[10px] text-zinc-500 font-bold mb-1 block uppercase tracking-wider">Participants</span>
-                                                <div className="grid grid-cols-2 gap-2">
-                                                        {PARTICIPANTS.slice(1).map(user => (
-                                                                <VideoTile key={user.id} user={user} />
-                                                        ))}
-                                                </div>
+                                                <StreamSection 
+                                                        title="Participants" 
+                                                        icon={<Users className="w-3 h-3 text-zinc-500" />}
+                                                        defaultExpanded={true}
+                                                        badge={`${PARTICIPANTS.length - 1}`}
+                                                >
+                                                        <div className="grid grid-cols-2 gap-2">
+                                                                {PARTICIPANTS.slice(1).map(user => (
+                                                                        <VideoTile key={user.id} user={user} />
+                                                                ))}
+                                                        </div>
+                                                </StreamSection>
                                         </>
                                 )}
 
