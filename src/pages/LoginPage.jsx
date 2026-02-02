@@ -1,16 +1,13 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { 
   Code2, 
   Github, 
   Mail, 
   Eye, 
   EyeOff, 
-  ArrowRight, 
   Sparkles, 
   Zap, 
-  Shield, 
-  LogIn,
   Users,
   Loader2,
   ArrowLeft,
@@ -23,8 +20,7 @@ import { useToast } from '../components/ToastProvider';
 import { useAuth } from '../context/AuthContext';
 
 const LoginPage = () => {
-  const [mode, setMode] = useState('main'); // 'main' | 'join' | 'login'
-  const [sessionCode, setSessionCode] = useState('');
+  const [mode, setMode] = useState('main'); // 'main' | 'login'
   const [loading, setLoading] = useState(false);
   const [isLogin, setIsLogin] = useState(true);
   const [name, setName] = useState('');
@@ -37,6 +33,33 @@ const LoginPage = () => {
   const navigate = useNavigate();
   const toast = useToast();
   const { loginWithGitHub, loginWithGoogle, register, login } = useAuth();
+
+  // DEV ONLY: Quick login for development - REMOVE BEFORE PRODUCTION
+  const DEV_MODE = true; // Set to false for production
+  
+  const handleDevLogin = async (role) => {
+    setLoading(true);
+    try {
+      // Try to login with dev accounts, if not exists, register
+      const devEmail = role === 'teacher' ? 'dev.teacher@codesync.test' : 'dev.student@codesync.test';
+      const devPassword = 'devpass123';
+      const devName = role === 'teacher' ? 'Dev Teacher' : 'Dev Student';
+      
+      try {
+        await login(devEmail, devPassword);
+      } catch (e) {
+        // Account doesn't exist, create it
+        await register(devName, devEmail, devPassword, role);
+      }
+      
+      toast.success('Dev Login', `Logged in as ${role}`);
+      navigate(role === 'teacher' ? '/session' : '/session');
+    } catch (err) {
+      toast.error('Error', err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleGitHubLogin = () => {
     setLoading(true);
@@ -63,7 +86,7 @@ const LoginPage = () => {
         }
         await login(email, password);
         toast.success('Welcome back!', 'Logged in successfully');
-        navigate('/dashboard');
+        navigate('/session');
       } else {
         // Register
         if (!name || !email || !password) {
@@ -74,28 +97,13 @@ const LoginPage = () => {
         }
         await register(name, email, password, selectedRole);
         toast.success('Account created!', 'Welcome to CodeSync');
-        navigate(selectedRole === 'teacher' ? '/dashboard' : '/classroom');
+        navigate('/session');
       }
     } catch (err) {
       setError(err.message);
       toast.error('Error', err.message);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleJoinSession = (e) => {
-    e.preventDefault();
-    if (sessionCode.trim()) {
-      setLoading(true);
-      toast.info('Joining', `Connecting to session ${sessionCode}...`);
-      // For now, redirect to classroom - will implement session joining later
-      setTimeout(() => {
-        toast.success('Connected!', 'You have joined the session');
-        navigate('/classroom');
-      }, 800);
-    } else {
-      toast.error('Invalid Code', 'Please enter a valid session code');
     }
   };
 
@@ -162,6 +170,34 @@ const LoginPage = () => {
                 <h2 className="text-2xl font-bold text-white mb-2">Get Started</h2>
                 <p className="text-zinc-400 text-sm mb-6">Sign in to start collaborating</p>
 
+                {/* DEV ONLY: Quick Login Buttons - REMOVE BEFORE PRODUCTION */}
+                {DEV_MODE && (
+                  <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl">
+                    <p className="text-amber-400 text-xs font-medium mb-3 flex items-center gap-2">
+                      <Zap className="w-3 h-3" />
+                      DEV MODE - Quick Login
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => handleDevLogin('student')}
+                        disabled={loading}
+                        className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1"
+                      >
+                        <Users className="w-3 h-3" />
+                        Student
+                      </button>
+                      <button
+                        onClick={() => handleDevLogin('teacher')}
+                        disabled={loading}
+                        className="px-3 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        Teacher
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* OAuth Buttons */}
                 <div className="space-y-3 mb-6">
                   <button
@@ -180,7 +216,7 @@ const LoginPage = () => {
                   <div className="flex-1 h-px bg-zinc-700" />
                 </div>
 
-                {/* Email Button - Coming Soon */}
+                {/* Email Button */}
                 <button
                   onClick={() => setMode('login')}
                   className="w-full flex items-center justify-center gap-3 px-4 py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 rounded-xl font-medium transition-all hover:scale-[1.02] active:scale-[0.98] hover:shadow-lg hover:shadow-indigo-500/25"
@@ -189,98 +225,11 @@ const LoginPage = () => {
                   Continue with Email
                 </button>
 
-                {/* Join Session */}
-                <div className="mt-6 pt-6 border-t border-zinc-700/50">
-                  <button
-                    onClick={() => setMode('join')}
-                    className="w-full flex items-center justify-center gap-2 text-sm text-zinc-400 hover:text-indigo-400 transition-colors"
-                  >
-                    <LogIn className="w-4 h-4" />
-                    Have a session code? Join directly
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
-                </div>
-
                 {/* Terms */}
                 <p className="text-center text-[10px] text-zinc-500 mt-6">
                   By continuing, you agree to our Terms of Service and Privacy Policy
                 </p>
               </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Join Session View
-  if (mode === 'join') {
-    return (
-      <div className="min-h-screen w-full bg-gradient-to-br from-zinc-950 via-zinc-900 to-indigo-950 flex items-center justify-center p-4 relative overflow-hidden">
-        <AnimatedBackground />
-        
-        <div className="max-w-md w-full relative z-10 animate-fade-in-up">
-          <div className="bg-zinc-900/60 backdrop-blur-xl border border-zinc-700/50 rounded-2xl p-8 shadow-2xl">
-            
-            <button
-              onClick={() => setMode('main')}
-              className="flex items-center gap-2 text-sm text-zinc-400 hover:text-white mb-6 transition-colors"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Back
-            </button>
-
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center">
-                <Users className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h2 className="text-xl font-bold text-white">Join Session</h2>
-                <p className="text-zinc-400 text-sm">Enter your session code</p>
-              </div>
-            </div>
-
-            <form onSubmit={handleJoinSession} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-zinc-400 mb-2">
-                  Session Code
-                </label>
-                <input
-                  type="text"
-                  value={sessionCode}
-                  onChange={(e) => setSessionCode(e.target.value.toUpperCase())}
-                  placeholder="ABC-123"
-                  className="w-full px-4 py-3.5 bg-zinc-800 border border-zinc-600 rounded-xl text-white text-center text-2xl font-mono tracking-widest placeholder-zinc-600 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
-                  maxLength={7}
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={!sessionCode.trim() || loading}
-                className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl font-semibold transition-all hover:shadow-lg hover:shadow-indigo-500/25 flex items-center justify-center gap-2"
-              >
-                {loading ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <>
-                    Join Session
-                    <ArrowRight className="w-5 h-5" />
-                  </>
-                )}
-              </button>
-            </form>
-
-            <div className="mt-6 pt-6 border-t border-zinc-700/50 text-center">
-              <p className="text-sm text-zinc-400">
-                Don't have an account?{' '}
-                <button
-                  onClick={() => { setMode('login'); setIsLogin(false); }}
-                  className="text-indigo-400 hover:text-indigo-300 font-medium"
-                >
-                  Sign up first
-                </button>
-              </p>
             </div>
           </div>
         </div>

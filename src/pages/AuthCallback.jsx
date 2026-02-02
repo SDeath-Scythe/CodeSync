@@ -19,13 +19,9 @@ const AuthCallback = () => {
         setMessage(`Welcome, ${authUser.name}!`);
         toast.success('Signed In', `Welcome to CodeSync, ${authUser.name}!`);
         
-        // Redirect based on role after a short delay
+        // Redirect to session hub after a short delay
         setTimeout(() => {
-          if (authUser.role === 'teacher') {
-            navigate('/dashboard', { replace: true });
-          } else {
-            navigate('/classroom', { replace: true });
-          }
+          navigate('/session', { replace: true });
         }, 1500);
         
       } catch (error) {
