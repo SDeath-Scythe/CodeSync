@@ -52,9 +52,11 @@ const ResizablePanel = ({
     if (!isResizing) return;
 
     const currentPos = isHorizontal ? e.clientX : e.clientY;
+    // For side="right" (handle on right of panel): drag right = bigger, drag left = smaller
+    // For side="left" (handle on left of panel): drag left = bigger, drag right = smaller
     const diff = side === 'right' || side === 'bottom' 
-      ? startPosRef.current - currentPos 
-      : currentPos - startPosRef.current;
+      ? currentPos - startPosRef.current 
+      : startPosRef.current - currentPos;
     
     const newSize = Math.min(maxSize, Math.max(minSize, startSizeRef.current + diff));
     setSize(newSize);
