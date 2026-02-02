@@ -65,13 +65,17 @@ const VideoTile = ({ user, stream, isLocal = false }) => {
                         )}
 
                         <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-sm px-2.5 py-1 rounded-lg text-[11px] font-medium text-white flex items-center gap-2">
-                                {user?.audioEnabled === false || user?.isMuted ? (
+                                {user?.isScreenSharing ? (
+                                        <MonitorUp className="w-3 h-3 text-emerald-400" />
+                                ) : user?.audioEnabled === false || user?.isMuted ? (
                                         <MicOff className="w-3 h-3 text-red-400" />
                                 ) : (
                                         <Mic className="w-3 h-3 text-emerald-400" />
                                 )}
-                                <span className="truncate max-w-[80px]">{isLocal ? 'You' : (user?.name || user?.userName || 'User')}</span>
-                                {(user?.role === "teacher" || user?.isHost) && (
+                                <span className="truncate max-w-[80px]">
+                                        {user?.isScreenSharing ? 'Screen' : (isLocal ? 'You' : (user?.name || user?.userName || 'User'))}
+                                </span>
+                                {(user?.role === "teacher" || user?.isHost) && !user?.isScreenSharing && (
                                         <span className="text-indigo-300 text-[9px] uppercase font-bold tracking-wide px-1.5 py-0.5 bg-indigo-500/20 rounded">HOST</span>
                                 )}
                         </div>
@@ -226,6 +230,7 @@ const ClassroomPanel = ({ onClose, isFullscreen = false, onToggleFullscreen }) =
                 isInCall,
                 callParticipants,
                 localStream,
+                screenStream,
                 isAudioEnabled,
                 isVideoEnabled,
                 isScreenSharing,
@@ -458,6 +463,25 @@ const ClassroomPanel = ({ onClose, isFullscreen = false, onToggleFullscreen }) =
                                                                                 isHost: true
                                                                         }}
                                                                         stream={localStream}
+                                                                        isLocal={true}
+                                                                />
+                                                        </StreamSection>
+                                                )}
+
+                                                {/* Screen Share Preview */}
+                                                {isInCall && isScreenSharing && screenStream && (
+                                                        <StreamSection 
+                                                                title="Your Screen Share" 
+                                                                icon={<MonitorUp className="w-3 h-3 text-emerald-500" />}
+                                                                defaultExpanded={true}
+                                                        >
+                                                                <VideoTile 
+                                                                        user={{
+                                                                                name: 'Screen Share',
+                                                                                isScreenSharing: true,
+                                                                                videoEnabled: true
+                                                                        }}
+                                                                        stream={screenStream}
                                                                         isLocal={true}
                                                                 />
                                                         </StreamSection>

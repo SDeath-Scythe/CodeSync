@@ -103,8 +103,8 @@ export const ToastProvider = ({ children }) => {
                 <ToastContext.Provider value={toast}>
                         {children}
 
-                        {/* Toast Container */}
-                        <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-3">
+                        {/* Toast Container - positioned top-right to avoid blocking bottom controls */}
+                        <div className="fixed top-4 right-4 z-[100] flex flex-col gap-3">
                                 {toasts.map(t => (
                                         <Toast
                                                 key={t.id}

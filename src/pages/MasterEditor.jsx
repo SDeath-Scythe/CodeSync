@@ -69,7 +69,7 @@ function MasterEditor() {
                                 const session = JSON.parse(storedSession);
                                 setSessionInfo(session);
                                 joinSession(session.code);
-                                toast.success('Connected', `Joined session: ${session.title}`);
+                                // Note: Toast is already shown in SessionHub when joining
                         } catch (err) {
                                 console.error('Failed to parse session:', err);
                                 toast.error('Error', 'Invalid session data');

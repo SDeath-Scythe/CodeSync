@@ -397,6 +397,7 @@ export const CallProvider = ({ children }) => {
     isInCall,
     callParticipants,
     localStream,
+    screenStream, // Expose screen stream for display
     isAudioEnabled,
     isVideoEnabled,
     isScreenSharing,
