@@ -2,13 +2,15 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useFileSystem } from '../context/FileSystemContext';
 import { getFileIconPath, getFolderIconPath } from '../utils/fileIcons';
 
-// Icons using material-icon-theme
+// Icons using material-icon-theme with lazy loading
 const FolderIcon = ({ isOpen, name }) => (
   <img 
     src={getFolderIconPath(name, isOpen)} 
     alt="" 
     width="16" 
     height="16" 
+    loading="lazy"
+    decoding="async"
     className="flex-shrink-0"
   />
 );
@@ -19,6 +21,8 @@ const FileIcon = ({ name }) => (
     alt="" 
     width="16" 
     height="16" 
+    loading="lazy"
+    decoding="async"
     className="flex-shrink-0"
   />
 );
