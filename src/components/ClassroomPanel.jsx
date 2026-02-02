@@ -11,12 +11,14 @@ import {
         Smile,
         PhoneOff,
         ChevronDown,
-        ChevronRight
+        ChevronRight,
+        Phone
 } from 'lucide-react';
 import { useToast } from './ToastProvider';
 import { useNavigate } from 'react-router-dom';
 import { useCollaboration } from '../context/CollaborationContext';
 import { useAuth } from '../context/AuthContext';
+import { useCall } from '../context/CallContext';
 
 // --- MOCK DATA (fallback for video) ---
 const MOCK_VIDEO_USERS = [
@@ -27,37 +29,61 @@ const EMOJIS = ['👍', '❤️', '😊', '🎉', '🤔', '👏', '🔥', '💡'
 
 // --- SUB-COMPONENTS ---
 
-const VideoTile = ({ user }) => (
-        <div className={`relative aspect-video bg-zinc-900/50 rounded-xl overflow-hidden border-2 transition-all duration-300 ${user.isSpeaking ? 'border-indigo-500/50 shadow-lg shadow-indigo-500/20 scale-[1.02]' : 'border-zinc-700/30 hover:border-zinc-600/50'}`}>
-                {user.camOn ? (
-                        <img src={user.avatar} alt={user.name} className="w-full h-full object-cover opacity-90" />
-                ) : (
-                        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-zinc-800/50 to-zinc-900/50 backdrop-blur-sm">
-                                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-                                        <span className="text-lg font-bold text-white">{user.name.charAt(0)}</span>
+// Video tile that can show real video stream or avatar fallback
+const VideoTile = ({ user, stream, isLocal = false }) => {
+        const videoRef = useRef(null);
+        
+        // Attach video stream when available
+        useEffect(() => {
+                if (videoRef.current && stream) {
+                        videoRef.current.srcObject = stream;
+                }
+        }, [stream]);
+        
+        const hasVideo = stream && user?.videoEnabled !== false;
+        
+        return (
+                <div className={`relative aspect-video bg-zinc-900/50 rounded-xl overflow-hidden border-2 transition-all duration-300 ${user?.isSpeaking ? 'border-indigo-500/50 shadow-lg shadow-indigo-500/20 scale-[1.02]' : 'border-zinc-700/30 hover:border-zinc-600/50'}`}>
+                        {hasVideo ? (
+                                <video
+                                        ref={videoRef}
+                                        autoPlay
+                                        playsInline
+                                        muted={isLocal} // Mute local video to prevent feedback
+                                        className="w-full h-full object-cover"
+                                />
+                        ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-zinc-800/50 to-zinc-900/50 backdrop-blur-sm">
+                                        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                                                <span className="text-lg font-bold text-white">{(user?.name || user?.userName || 'U').charAt(0)}</span>
+                                        </div>
                                 </div>
+                        )}
+
+                        {user?.isSpeaking && (
+                                <div className="absolute inset-0 border-2 border-indigo-500 rounded-xl pointer-events-none" />
+                        )}
+
+                        <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-sm px-2.5 py-1 rounded-lg text-[11px] font-medium text-white flex items-center gap-2">
+                                {user?.audioEnabled === false || user?.isMuted ? (
+                                        <MicOff className="w-3 h-3 text-red-400" />
+                                ) : (
+                                        <Mic className="w-3 h-3 text-emerald-400" />
+                                )}
+                                <span className="truncate max-w-[80px]">{isLocal ? 'You' : (user?.name || user?.userName || 'User')}</span>
+                                {(user?.role === "teacher" || user?.isHost) && (
+                                        <span className="text-indigo-300 text-[9px] uppercase font-bold tracking-wide px-1.5 py-0.5 bg-indigo-500/20 rounded">HOST</span>
+                                )}
                         </div>
-                )}
 
-                {user.isSpeaking && (
-                        <div className="absolute inset-0 border-2 border-indigo-500 rounded-xl pointer-events-none" />
-                )}
-
-                <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-sm px-2.5 py-1 rounded-lg text-[11px] font-medium text-white flex items-center gap-2">
-                        {user.isMuted ? <MicOff className="w-3 h-3 text-red-400" /> : <Mic className="w-3 h-3 text-emerald-400" />}
-                        <span className="truncate max-w-[80px]">{user.name}</span>
-                        {user.role === "Instructor" && (
-                                <span className="text-indigo-300 text-[9px] uppercase font-bold tracking-wide px-1.5 py-0.5 bg-indigo-500/20 rounded">HOST</span>
+                        {user?.isScreenSharing && (
+                                <div className="absolute top-2 right-2 bg-gradient-to-r from-indigo-500 to-purple-500 p-1.5 rounded-lg text-white shadow-lg">
+                                        <MonitorUp className="w-4 h-4" />
+                                </div>
                         )}
                 </div>
-
-                {user.id === 2 && (
-                        <div className="absolute top-2 right-2 bg-gradient-to-r from-amber-500 to-orange-500 p-1.5 rounded-lg text-white shadow-lg animate-bounce">
-                                <Hand className="w-4 h-4" />
-                        </div>
-                )}
-        </div>
-);
+        );
+};
 
 const ChatBubble = ({ msg, isNew, currentUserId }) => {
         // Handle both old format and new server format
@@ -195,10 +221,22 @@ const ClassroomPanel = ({ onClose, isFullscreen = false, onToggleFullscreen }) =
                 isConnected 
         } = useCollaboration();
         
+        // Video call state from CallContext
+        const {
+                isInCall,
+                callParticipants,
+                localStream,
+                isAudioEnabled,
+                isVideoEnabled,
+                isScreenSharing,
+                joinCall,
+                leaveCall,
+                toggleAudio,
+                toggleVideo,
+                toggleScreenShare
+        } = useCall();
+        
         const [activeTab, setActiveTab] = useState('stream');
-        const [micOn, setMicOn] = useState(false);
-        const [camOn, setCamOn] = useState(true);
-        const [isScreenSharing, setIsScreenSharing] = useState(false);
         const [chatInput, setChatInput] = useState("");
         const [showEmoji, setShowEmoji] = useState(false);
         const chatEndRef = useRef(null);
@@ -257,31 +295,50 @@ const ClassroomPanel = ({ onClose, isFullscreen = false, onToggleFullscreen }) =
         };
 
         const handleMicToggle = () => {
-                setMicOn(!micOn);
+                toggleAudio();
                 toast.info(
-                        micOn ? 'Microphone Off' : 'Microphone On',
-                        micOn ? 'Your microphone is now muted' : 'Others can now hear you'
+                        isAudioEnabled ? 'Microphone Off' : 'Microphone On',
+                        isAudioEnabled ? 'Your microphone is now muted' : 'Others can now hear you'
                 );
         };
 
         const handleCamToggle = () => {
-                setCamOn(!camOn);
+                toggleVideo();
                 toast.info(
-                        camOn ? 'Camera Off' : 'Camera On',
-                        camOn ? 'Your camera is now off' : 'Others can now see you'
+                        isVideoEnabled ? 'Camera Off' : 'Camera On',
+                        isVideoEnabled ? 'Your camera is now off' : 'Others can now see you'
                 );
         };
 
-        const handleScreenShare = () => {
-                setIsScreenSharing(!isScreenSharing);
+        const handleScreenShare = async () => {
+                await toggleScreenShare();
                 toast.info(
                         isScreenSharing ? 'Stopped Sharing' : 'Screen Sharing',
                         isScreenSharing ? 'You stopped sharing your screen' : 'You are now sharing your screen'
                 );
         };
 
+        const handleJoinCall = async () => {
+                try {
+                        await joinCall();
+                        toast.success('Joined Call', 'You are now in the video call');
+                } catch (error) {
+                        toast.error('Call Error', 'Failed to join call. Check camera/mic permissions.');
+                }
+        };
+
         const handleLeaveCall = () => {
-                toast.warning('Leaving Session', 'Disconnecting from the call...');
+                if (isInCall) {
+                        leaveCall();
+                        toast.info('Left Call', 'You have left the video call');
+                }
+        };
+
+        const handleLeaveSession = () => {
+                if (isInCall) {
+                        leaveCall();
+                }
+                toast.warning('Leaving Session', 'Disconnecting from the session...');
                 localStorage.removeItem('codesync_current_session');
                 setTimeout(() => navigate('/session'), 1000);
         };
@@ -369,45 +426,87 @@ const ClassroomPanel = ({ onClose, isFullscreen = false, onToggleFullscreen }) =
                         <div className="flex-1 overflow-y-auto custom-scrollbar p-3 flex flex-col gap-1">
                                 {activeTab === 'stream' && (
                                         <>
-                                                <StreamSection 
-                                                        title="Active Speaker" 
-                                                        icon={<div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />}
-                                                        defaultExpanded={true}
-                                                >
-                                                        {/* Video stream placeholder - WebRTC to be implemented */}
-                                                        {participants.length > 0 ? (
-                                                                <VideoTile user={{
-                                                                        ...participants[0],
-                                                                        isSpeaking: true,
-                                                                        isMuted: false,
-                                                                        camOn: false
-                                                                }} />
-                                                        ) : (
-                                                                <div className="aspect-video bg-zinc-900/50 rounded-xl border-2 border-zinc-700/30 flex items-center justify-center">
-                                                                        <span className="text-zinc-500 text-sm">Waiting for participants...</span>
-                                                                </div>
-                                                        )}
-                                                </StreamSection>
+                                                {/* Join Call Button if not in call */}
+                                                {!isInCall && (
+                                                        <div className="mb-4 p-4 bg-zinc-800/50 rounded-xl border border-zinc-700/30">
+                                                                <p className="text-zinc-400 text-sm mb-3 text-center">
+                                                                        Join the video call to collaborate with others
+                                                                </p>
+                                                                <button
+                                                                        onClick={handleJoinCall}
+                                                                        className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl font-semibold flex items-center justify-center gap-2 transition-all"
+                                                                >
+                                                                        <Phone className="w-5 h-5" />
+                                                                        Join Call
+                                                                </button>
+                                                        </div>
+                                                )}
 
+                                                {/* Your Video (Local Stream) */}
+                                                {isInCall && localStream && (
+                                                        <StreamSection 
+                                                                title="Your Camera" 
+                                                                icon={<div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />}
+                                                                defaultExpanded={true}
+                                                        >
+                                                                <VideoTile 
+                                                                        user={{
+                                                                                name: user?.name || 'You',
+                                                                                role: user?.role,
+                                                                                audioEnabled: isAudioEnabled,
+                                                                                videoEnabled: isVideoEnabled,
+                                                                                isHost: true
+                                                                        }}
+                                                                        stream={localStream}
+                                                                        isLocal={true}
+                                                                />
+                                                        </StreamSection>
+                                                )}
+
+                                                {/* Remote Participants in Call */}
+                                                {isInCall && callParticipants.size > 0 && (
+                                                        <StreamSection 
+                                                                title="In Call" 
+                                                                icon={<div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />}
+                                                                defaultExpanded={true}
+                                                                badge={`${callParticipants.size}`}
+                                                        >
+                                                                <div className="grid grid-cols-2 gap-2">
+                                                                        {Array.from(callParticipants.entries()).map(([socketId, participant]) => (
+                                                                                <VideoTile 
+                                                                                        key={socketId}
+                                                                                        user={participant}
+                                                                                        stream={participant.stream}
+                                                                                />
+                                                                        ))}
+                                                                </div>
+                                                        </StreamSection>
+                                                )}
+
+                                                {/* Session Participants (not necessarily in call) */}
                                                 <StreamSection 
-                                                        title="Participants" 
+                                                        title="Session Participants" 
                                                         icon={<Users className="w-3 h-3 text-zinc-500" />}
-                                                        defaultExpanded={true}
-                                                        badge={`${Math.max(0, participants.length - 1)}`}
+                                                        defaultExpanded={!isInCall}
+                                                        badge={`${participants.length}`}
                                                 >
-                                                        <div className="grid grid-cols-2 gap-2">
-                                                                {participants.length > 1 ? (
-                                                                        participants.slice(1).map(p => (
-                                                                                <VideoTile key={p.id} user={{
-                                                                                        ...p,
-                                                                                        isSpeaking: false,
-                                                                                        isMuted: true,
-                                                                                        camOn: false
-                                                                                }} />
+                                                        <div className="space-y-2">
+                                                                {participants.length > 0 ? (
+                                                                        participants.map(p => (
+                                                                                <div key={p.id} className="flex items-center gap-3 p-2 bg-zinc-800/30 rounded-lg">
+                                                                                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                                                                                                <span className="text-xs font-bold text-white">{(p.name || 'U').charAt(0)}</span>
+                                                                                        </div>
+                                                                                        <div className="flex-1 min-w-0">
+                                                                                                <div className="text-sm text-zinc-300 truncate">{p.name || 'Unknown'}</div>
+                                                                                                <div className="text-xs text-zinc-500">{p.role === 'teacher' ? 'Host' : 'Student'}</div>
+                                                                                        </div>
+                                                                                        <div className="w-2 h-2 bg-green-500 rounded-full" title="Online" />
+                                                                                </div>
                                                                         ))
                                                                 ) : (
-                                                                        <div className="col-span-2 text-center py-4 text-zinc-500 text-xs">
-                                                                                No other participants yet
+                                                                        <div className="text-center py-4 text-zinc-500 text-xs">
+                                                                                No participants yet
                                                                         </div>
                                                                 )}
                                                         </div>
@@ -473,44 +572,66 @@ const ClassroomPanel = ({ onClose, isFullscreen = false, onToggleFullscreen }) =
                                         <div className="flex items-center gap-2">
                                                 <button
                                                         onClick={handleMicToggle}
-                                                        className={`p-2.5 rounded-xl transition-all duration-200 border ${micOn
-                                                                        ? 'bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 border-indigo-500/30'
-                                                                        : 'bg-red-600/20 text-red-400 hover:bg-red-600/30 border-red-500/30'
+                                                        disabled={!isInCall}
+                                                        className={`p-2.5 rounded-xl transition-all duration-200 border ${
+                                                                !isInCall 
+                                                                        ? 'bg-zinc-700/20 text-zinc-500 border-zinc-700/30 cursor-not-allowed'
+                                                                        : isAudioEnabled
+                                                                                ? 'bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 border-indigo-500/30'
+                                                                                : 'bg-red-600/20 text-red-400 hover:bg-red-600/30 border-red-500/30'
                                                                 }`}
-                                                        title={micOn ? "Mute" : "Unmute"}
+                                                        title={!isInCall ? 'Join call first' : isAudioEnabled ? "Mute" : "Unmute"}
                                                 >
-                                                        {micOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+                                                        {isAudioEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
                                                 </button>
                                                 <button
                                                         onClick={handleCamToggle}
-                                                        className={`p-2.5 rounded-xl transition-all duration-200 border ${camOn
-                                                                        ? 'bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 border-indigo-500/30'
-                                                                        : 'bg-red-600/20 text-red-400 hover:bg-red-600/30 border-red-500/30'
+                                                        disabled={!isInCall}
+                                                        className={`p-2.5 rounded-xl transition-all duration-200 border ${
+                                                                !isInCall 
+                                                                        ? 'bg-zinc-700/20 text-zinc-500 border-zinc-700/30 cursor-not-allowed'
+                                                                        : isVideoEnabled
+                                                                                ? 'bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 border-indigo-500/30'
+                                                                                : 'bg-red-600/20 text-red-400 hover:bg-red-600/30 border-red-500/30'
                                                                 }`}
-                                                        title={camOn ? "Stop Video" : "Start Video"}
+                                                        title={!isInCall ? 'Join call first' : isVideoEnabled ? "Stop Video" : "Start Video"}
                                                 >
-                                                        {camOn ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
+                                                        {isVideoEnabled ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
                                                 </button>
                                         </div>
 
                                         <div className="flex items-center gap-2">
                                                 <button
                                                         onClick={handleScreenShare}
-                                                        className={`p-2.5 rounded-xl transition-all border ${isScreenSharing
-                                                                        ? 'bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 border-emerald-500/30'
-                                                                        : 'bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 border-indigo-500/30'
+                                                        disabled={!isInCall}
+                                                        className={`p-2.5 rounded-xl transition-all border ${
+                                                                !isInCall 
+                                                                        ? 'bg-zinc-700/20 text-zinc-500 border-zinc-700/30 cursor-not-allowed'
+                                                                        : isScreenSharing
+                                                                                ? 'bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 border-emerald-500/30'
+                                                                                : 'bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 border-indigo-500/30'
                                                                 }`}
-                                                        title={isScreenSharing ? "Stop Sharing" : "Share Screen"}
+                                                        title={!isInCall ? 'Join call first' : isScreenSharing ? "Stop Sharing" : "Share Screen"}
                                                 >
                                                         <MonitorUp className="w-4 h-4" />
                                                 </button>
-                                                <button
-                                                        onClick={handleLeaveCall}
-                                                        className="p-2.5 rounded-xl bg-red-600/20 text-red-400 hover:bg-red-600/30 transition-all border border-red-500/30"
-                                                        title="Leave Call"
-                                                >
-                                                        <PhoneOff className="w-4 h-4" />
-                                                </button>
+                                                {isInCall ? (
+                                                        <button
+                                                                onClick={handleLeaveCall}
+                                                                className="p-2.5 rounded-xl bg-red-600/20 text-red-400 hover:bg-red-600/30 transition-all border border-red-500/30"
+                                                                title="Leave Call"
+                                                        >
+                                                                <PhoneOff className="w-4 h-4" />
+                                                        </button>
+                                                ) : (
+                                                        <button
+                                                                onClick={handleLeaveSession}
+                                                                className="p-2.5 rounded-xl bg-red-600/20 text-red-400 hover:bg-red-600/30 transition-all border border-red-500/30"
+                                                                title="Leave Session"
+                                                        >
+                                                                <PhoneOff className="w-4 h-4" />
+                                                        </button>
+                                                )}
                                         </div>
                                 </div>
                         </div>

@@ -207,6 +207,86 @@ class SocketService {
   }
 
   // ============================================
+  // VIDEO CALL / WEBRTC SIGNALING
+  // ============================================
+
+  // Join the call
+  joinCall() {
+    if (!this.socket?.connected) return;
+    this.socket.emit('call-join');
+  }
+
+  // Leave the call
+  leaveCall() {
+    if (!this.socket?.connected) return;
+    this.socket.emit('call-leave');
+  }
+
+  // Send WebRTC offer
+  sendOffer(targetSocketId, offer) {
+    if (!this.socket?.connected) return;
+    this.socket.emit('webrtc-offer', { targetSocketId, offer });
+  }
+
+  // Send WebRTC answer
+  sendAnswer(targetSocketId, answer) {
+    if (!this.socket?.connected) return;
+    this.socket.emit('webrtc-answer', { targetSocketId, answer });
+  }
+
+  // Send ICE candidate
+  sendIceCandidate(targetSocketId, candidate) {
+    if (!this.socket?.connected) return;
+    this.socket.emit('webrtc-ice-candidate', { targetSocketId, candidate });
+  }
+
+  // Toggle media (audio/video)
+  toggleMedia(type, enabled) {
+    if (!this.socket?.connected) return;
+    this.socket.emit('call-media-toggle', { type, enabled });
+  }
+
+  // Toggle screen share
+  toggleScreenShare(enabled) {
+    if (!this.socket?.connected) return;
+    this.socket.emit('call-screen-share', { enabled });
+  }
+
+  // Listen for call events
+  onCallUserJoined(callback) {
+    this.addListener('call-user-joined', callback);
+  }
+
+  onCallUserLeft(callback) {
+    this.addListener('call-user-left', callback);
+  }
+
+  onWebRTCOffer(callback) {
+    this.addListener('webrtc-offer', callback);
+  }
+
+  onWebRTCAnswer(callback) {
+    this.addListener('webrtc-answer', callback);
+  }
+
+  onWebRTCIceCandidate(callback) {
+    this.addListener('webrtc-ice-candidate', callback);
+  }
+
+  onCallMediaToggle(callback) {
+    this.addListener('call-media-toggle', callback);
+  }
+
+  onCallScreenShare(callback) {
+    this.addListener('call-screen-share', callback);
+  }
+
+  // Get socket ID (needed for WebRTC targeting)
+  getSocketId() {
+    return this.socket?.id || null;
+  }
+
+  // ============================================
   // HELPER METHODS
   // ============================================
 

@@ -4,6 +4,7 @@ import { ThemeProvider } from './context/ThemeContext'
 import { ToastProvider } from './components/ToastProvider'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { CollaborationProvider } from './context/CollaborationContext'
+import { CallProvider } from './context/CallContext'
 import LoginPage from './pages/LoginPage'
 import AuthCallback from './pages/AuthCallback'
 import SessionHub from './pages/SessionHub'
@@ -105,7 +106,9 @@ function App() {
         <Router>
           <AuthProvider>
             <CollaborationProvider>
-              <AppRoutes />
+              <CallProvider>
+                <AppRoutes />
+              </CallProvider>
             </CollaborationProvider>
           </AuthProvider>
         </Router>

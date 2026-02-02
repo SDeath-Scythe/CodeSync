@@ -46,8 +46,13 @@ const SessionHub = () => {
       // Store current session in localStorage for the classroom/editor to use
       localStorage.setItem('codesync_current_session', JSON.stringify(session));
       
-      // Navigate based on role - teachers go to editor, students go to classroom
-      navigate(isTeacher ? '/editor' : '/classroom');
+      // Navigate based on session role - only session owner goes to editor
+      // Everyone else (including other teachers) goes to classroom as student
+      if (session.isOwner) {
+        navigate('/editor');
+      } else {
+        navigate('/classroom');
+      }
     } catch (err) {
       toast.error('Error', err.message || 'Failed to join session');
     } finally {

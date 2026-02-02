@@ -433,12 +433,22 @@ app.post('/sessions/join', async (req, res) => {
   
   // Allow joining without auth (guest mode)
   let userId = null;
+  let userRole = 'student';
   
   if (authHeader && authHeader.startsWith('Bearer ')) {
     try {
       const token = authHeader.split(' ')[1];
       const decoded = jwt.verify(token, JWT_SECRET);
       userId = decoded.userId;
+      
+      // Get user's role
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { role: true }
+      });
+      if (user) {
+        userRole = user.role;
+      }
     } catch (e) {
       // Invalid token, continue as guest
     }
@@ -449,12 +459,12 @@ app.post('/sessions/join', async (req, res) => {
       where: { code: code.toUpperCase() },
       include: {
         owner: {
-          select: { id: true, name: true, avatar: true }
+          select: { id: true, name: true, avatar: true, role: true }
         },
         participants: {
           include: {
             user: {
-              select: { id: true, name: true, avatar: true }
+              select: { id: true, name: true, avatar: true, role: true }
             }
           }
         }
@@ -468,6 +478,13 @@ app.post('/sessions/join', async (req, res) => {
     if (!session.isActive) {
       return res.status(400).json({ error: 'This session has ended' });
     }
+    
+    // Check if user is the owner (teacher who created the session)
+    const isOwner = userId && session.ownerId === userId;
+    
+    // Determine the role for this session
+    // Only the owner can join as teacher, everyone else joins as student
+    const sessionRole = isOwner ? 'teacher' : 'student';
     
     // Add user as participant if logged in
     if (userId) {
@@ -486,7 +503,11 @@ app.post('/sessions/join', async (req, res) => {
       });
     }
     
-    res.json({ session });
+    res.json({ 
+      session,
+      isOwner,
+      sessionRole // 'teacher' if owner, 'student' otherwise
+    });
     
   } catch (error) {
     console.error('Join session error:', error);
@@ -880,6 +901,92 @@ io.on('connection', (socket) => {
   socket.on('typing-stop', () => {
     if (!currentSession || !currentUser) return;
     socket.to(currentSession).emit('user-stopped-typing', { userId: currentUser.id });
+  });
+
+  // ============================================
+  // WEBRTC SIGNALING FOR VIDEO CALLS
+  // ============================================
+
+  // User wants to start/join the call
+  socket.on('call-join', () => {
+    if (!currentSession || !currentUser) return;
+    console.log(`📞 ${currentUser.name} joining call in session ${currentSession}`);
+    
+    // Notify others that this user wants to join the call
+    socket.to(currentSession).emit('call-user-joined', {
+      userId: currentUser.id,
+      userName: currentUser.name,
+      socketId: socket.id
+    });
+  });
+
+  // User leaving the call (but staying in session)
+  socket.on('call-leave', () => {
+    if (!currentSession || !currentUser) return;
+    console.log(`📞 ${currentUser.name} leaving call in session ${currentSession}`);
+    
+    socket.to(currentSession).emit('call-user-left', {
+      userId: currentUser.id,
+      socketId: socket.id
+    });
+  });
+
+  // WebRTC offer (initiating peer connection)
+  socket.on('webrtc-offer', ({ targetSocketId, offer }) => {
+    if (!currentSession || !currentUser) return;
+    console.log(`🔗 WebRTC offer from ${currentUser.name} to ${targetSocketId}`);
+    
+    io.to(targetSocketId).emit('webrtc-offer', {
+      fromUserId: currentUser.id,
+      fromUserName: currentUser.name,
+      fromSocketId: socket.id,
+      offer
+    });
+  });
+
+  // WebRTC answer (responding to offer)
+  socket.on('webrtc-answer', ({ targetSocketId, answer }) => {
+    if (!currentSession || !currentUser) return;
+    console.log(`🔗 WebRTC answer from ${currentUser.name} to ${targetSocketId}`);
+    
+    io.to(targetSocketId).emit('webrtc-answer', {
+      fromSocketId: socket.id,
+      answer
+    });
+  });
+
+  // ICE candidate exchange
+  socket.on('webrtc-ice-candidate', ({ targetSocketId, candidate }) => {
+    if (!currentSession) return;
+    
+    io.to(targetSocketId).emit('webrtc-ice-candidate', {
+      fromSocketId: socket.id,
+      candidate
+    });
+  });
+
+  // Toggle media (mute/unmute, camera on/off)
+  socket.on('call-media-toggle', ({ type, enabled }) => {
+    if (!currentSession || !currentUser) return;
+    
+    socket.to(currentSession).emit('call-media-toggle', {
+      userId: currentUser.id,
+      socketId: socket.id,
+      type, // 'audio' or 'video'
+      enabled
+    });
+  });
+
+  // Screen share started/stopped
+  socket.on('call-screen-share', ({ enabled }) => {
+    if (!currentSession || !currentUser) return;
+    console.log(`🖥️ ${currentUser.name} ${enabled ? 'started' : 'stopped'} screen sharing`);
+    
+    socket.to(currentSession).emit('call-screen-share', {
+      userId: currentUser.id,
+      socketId: socket.id,
+      enabled
+    });
   });
 
   // Disconnect

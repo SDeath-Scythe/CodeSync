@@ -57,7 +57,12 @@ export const sessionService = {
       throw new Error(data.error || 'Failed to join session');
     }
 
-    return data.session;
+    // Return session with isOwner and sessionRole info
+    return {
+      ...data.session,
+      isOwner: data.isOwner || false,
+      sessionRole: data.sessionRole || 'student'
+    };
   },
 
   // Get session by code
