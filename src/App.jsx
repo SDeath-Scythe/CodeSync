@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { ThemeProvider } from './context/ThemeContext'
 import { ToastProvider } from './components/ToastProvider'
 import { AuthProvider, useAuth } from './context/AuthContext'
+import { CollaborationProvider } from './context/CollaborationContext'
 import LoginPage from './pages/LoginPage'
 import AuthCallback from './pages/AuthCallback'
 import SessionHub from './pages/SessionHub'
@@ -103,7 +104,9 @@ function App() {
       <ToastProvider>
         <Router>
           <AuthProvider>
-            <AppRoutes />
+            <CollaborationProvider>
+              <AppRoutes />
+            </CollaborationProvider>
           </AuthProvider>
         </Router>
       </ToastProvider>

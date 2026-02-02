@@ -3,6 +3,8 @@ import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { config } from 'dotenv';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
 
 // Load environment variables before Prisma
 config();
@@ -15,6 +17,16 @@ console.log('Database URL configured:', dbUrl ? 'Yes (length: ' + dbUrl.length +
 const { PrismaClient } = await import('@prisma/client');
 
 const app = express();
+const httpServer = createServer(app);
+
+// Socket.IO setup
+const io = new Server(httpServer, {
+  cors: {
+    origin: ['http://localhost:5173', 'http://localhost:5174'],
+    credentials: true
+  }
+});
+
 // Prisma Postgres with Accelerate requires accelerateUrl
 const prisma = new PrismaClient({
   accelerateUrl: process.env.DATABASE_URL
@@ -520,8 +532,392 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 CodeSync Auth Server running on http://localhost:${PORT}`);
+// ============================================
+// FILE ENDPOINTS
+// ============================================
+
+// Get files for a session
+app.get('/sessions/:code/files', async (req, res) => {
+  const { code } = req.params;
+  
+  try {
+    const session = await prisma.session.findUnique({
+      where: { code: code.toUpperCase() }
+    });
+    
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    
+    const files = await prisma.sessionFile.findMany({
+      where: { sessionId: session.id },
+      orderBy: [{ isFolder: 'desc' }, { path: 'asc' }]
+    });
+    
+    res.json({ files });
+  } catch (error) {
+    console.error('Get files error:', error);
+    res.status(500).json({ error: 'Failed to get files' });
+  }
+});
+
+// Save/update a file
+app.put('/sessions/:code/files', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const { code } = req.params;
+  const { path, name, content, isFolder, parentPath, language } = req.body;
+  
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'No token provided' });
+  }
+  
+  try {
+    const token = authHeader.split(' ')[1];
+    jwt.verify(token, JWT_SECRET);
+    
+    const session = await prisma.session.findUnique({
+      where: { code: code.toUpperCase() }
+    });
+    
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    
+    const file = await prisma.sessionFile.upsert({
+      where: {
+        sessionId_path: {
+          sessionId: session.id,
+          path
+        }
+      },
+      update: { content, name, language },
+      create: {
+        sessionId: session.id,
+        path,
+        name,
+        content: content || '',
+        isFolder: isFolder || false,
+        parentPath,
+        language
+      }
+    });
+    
+    res.json({ file });
+  } catch (error) {
+    console.error('Save file error:', error);
+    res.status(500).json({ error: 'Failed to save file' });
+  }
+});
+
+// Delete a file
+app.delete('/sessions/:code/files', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const { code } = req.params;
+  const { path } = req.body;
+  
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'No token provided' });
+  }
+  
+  try {
+    const token = authHeader.split(' ')[1];
+    jwt.verify(token, JWT_SECRET);
+    
+    const session = await prisma.session.findUnique({
+      where: { code: code.toUpperCase() }
+    });
+    
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    
+    // Delete file and all children if it's a folder
+    await prisma.sessionFile.deleteMany({
+      where: {
+        sessionId: session.id,
+        OR: [
+          { path },
+          { path: { startsWith: path + '/' } }
+        ]
+      }
+    });
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete file error:', error);
+    res.status(500).json({ error: 'Failed to delete file' });
+  }
+});
+
+// ============================================
+// CHAT ENDPOINTS
+// ============================================
+
+// Get chat messages for a session
+app.get('/sessions/:code/messages', async (req, res) => {
+  const { code } = req.params;
+  const { limit = 50 } = req.query;
+  
+  try {
+    const session = await prisma.session.findUnique({
+      where: { code: code.toUpperCase() }
+    });
+    
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    
+    const messages = await prisma.chatMessage.findMany({
+      where: { sessionId: session.id },
+      include: {
+        sender: {
+          select: { id: true, name: true, avatar: true, role: true }
+        }
+      },
+      orderBy: { timestamp: 'desc' },
+      take: parseInt(limit)
+    });
+    
+    res.json({ messages: messages.reverse() });
+  } catch (error) {
+    console.error('Get messages error:', error);
+    res.status(500).json({ error: 'Failed to get messages' });
+  }
+});
+
+// ============================================
+// SOCKET.IO - REAL-TIME COLLABORATION
+// ============================================
+
+// Track connected users per session
+const sessionUsers = new Map(); // sessionCode -> Map<socketId, userInfo>
+
+// Verify JWT token for socket connections
+const verifySocketToken = (token) => {
+  try {
+    return jwt.verify(token, JWT_SECRET);
+  } catch {
+    return null;
+  }
+};
+
+io.on('connection', (socket) => {
+  console.log('🔌 Client connected:', socket.id);
+  
+  let currentSession = null;
+  let currentUser = null;
+
+  // Join a session room
+  socket.on('join-session', async ({ sessionCode, token }) => {
+    const decoded = verifySocketToken(token);
+    if (!decoded) {
+      socket.emit('error', { message: 'Invalid token' });
+      return;
+    }
+    
+    try {
+      // Get user info
+      const user = await prisma.user.findUnique({
+        where: { id: decoded.userId },
+        select: { id: true, name: true, avatar: true, role: true }
+      });
+      
+      if (!user) {
+        socket.emit('error', { message: 'User not found' });
+        return;
+      }
+      
+      // Verify session exists
+      const session = await prisma.session.findUnique({
+        where: { code: sessionCode.toUpperCase() }
+      });
+      
+      if (!session) {
+        socket.emit('error', { message: 'Session not found' });
+        return;
+      }
+      
+      currentSession = sessionCode.toUpperCase();
+      currentUser = user;
+      
+      // Join the socket room
+      socket.join(currentSession);
+      
+      // Track user in session
+      if (!sessionUsers.has(currentSession)) {
+        sessionUsers.set(currentSession, new Map());
+      }
+      sessionUsers.get(currentSession).set(socket.id, {
+        ...user,
+        socketId: socket.id,
+        cursorPosition: null
+      });
+      
+      // Notify others that user joined
+      socket.to(currentSession).emit('user-joined', {
+        user,
+        participants: Array.from(sessionUsers.get(currentSession).values())
+      });
+      
+      // Send current participants to joining user
+      socket.emit('session-joined', {
+        sessionCode: currentSession,
+        participants: Array.from(sessionUsers.get(currentSession).values())
+      });
+      
+      console.log(`👤 ${user.name} joined session ${currentSession}`);
+      
+    } catch (error) {
+      console.error('Join session error:', error);
+      socket.emit('error', { message: 'Failed to join session' });
+    }
+  });
+
+  // Code change event
+  socket.on('code-change', ({ fileId, content, cursorPosition }) => {
+    if (!currentSession) return;
+    
+    // Broadcast to all other users in the session
+    socket.to(currentSession).emit('code-update', {
+      fileId,
+      content,
+      userId: currentUser?.id,
+      userName: currentUser?.name,
+      cursorPosition
+    });
+  });
+
+  // Cursor position update
+  socket.on('cursor-move', ({ fileId, position, selection }) => {
+    if (!currentSession || !currentUser) return;
+    
+    // Update user's cursor in tracking
+    const users = sessionUsers.get(currentSession);
+    if (users?.has(socket.id)) {
+      users.get(socket.id).cursorPosition = { fileId, position, selection };
+    }
+    
+    socket.to(currentSession).emit('cursor-update', {
+      userId: currentUser.id,
+      userName: currentUser.name,
+      fileId,
+      position,
+      selection
+    });
+  });
+
+  // File operations
+  socket.on('file-created', ({ file }) => {
+    if (!currentSession) return;
+    socket.to(currentSession).emit('file-created', { file, userId: currentUser?.id });
+  });
+
+  socket.on('file-deleted', ({ path }) => {
+    if (!currentSession) return;
+    socket.to(currentSession).emit('file-deleted', { path, userId: currentUser?.id });
+  });
+
+  socket.on('file-renamed', ({ oldPath, newPath, newName }) => {
+    if (!currentSession) return;
+    socket.to(currentSession).emit('file-renamed', { oldPath, newPath, newName, userId: currentUser?.id });
+  });
+
+  // Chat message
+  socket.on('chat-message', async ({ content }) => {
+    console.log('📨 Chat message received:', { content, currentSession, hasUser: !!currentUser });
+    
+    if (!currentSession || !currentUser) {
+      console.error('❌ Cannot process message: No session or user', { currentSession, hasUser: !!currentUser });
+      return;
+    }
+    
+    try {
+      // Get session ID
+      const session = await prisma.session.findUnique({
+        where: { code: currentSession }
+      });
+      
+      if (!session) {
+        console.error('❌ Session not found:', currentSession);
+        return;
+      }
+      
+      // Save message to database
+      const message = await prisma.chatMessage.create({
+        data: {
+          sessionId: session.id,
+          senderId: currentUser.id,
+          content
+        },
+        include: {
+          sender: {
+            select: { id: true, name: true, avatar: true, role: true }
+          }
+        }
+      });
+      
+      console.log('✅ Message saved, broadcasting to room:', currentSession);
+      
+      // Broadcast to all users in session (including sender)
+      io.to(currentSession).emit('chat-message', {
+        id: message.id,
+        content: message.content,
+        timestamp: message.timestamp,
+        sender: message.sender
+      });
+      
+    } catch (error) {
+      console.error('Chat message error:', error);
+    }
+  });
+
+  // Typing indicator
+  socket.on('typing-start', () => {
+    if (!currentSession || !currentUser) return;
+    socket.to(currentSession).emit('user-typing', { userId: currentUser.id, userName: currentUser.name });
+  });
+
+  socket.on('typing-stop', () => {
+    if (!currentSession || !currentUser) return;
+    socket.to(currentSession).emit('user-stopped-typing', { userId: currentUser.id });
+  });
+
+  // Disconnect
+  socket.on('disconnect', () => {
+    console.log('🔌 Client disconnected:', socket.id);
+    
+    if (currentSession && sessionUsers.has(currentSession)) {
+      const users = sessionUsers.get(currentSession);
+      const user = users.get(socket.id);
+      users.delete(socket.id);
+      
+      // Notify others
+      if (user) {
+        socket.to(currentSession).emit('user-left', {
+          userId: user.id,
+          participants: Array.from(users.values())
+        });
+        console.log(`👤 ${user.name} left session ${currentSession}`);
+      }
+      
+      // Clean up empty sessions
+      if (users.size === 0) {
+        sessionUsers.delete(currentSession);
+      }
+    }
+  });
+});
+
+// ============================================
+// START SERVER
+// ============================================
+
+httpServer.listen(PORT, () => {
+  console.log(`🚀 CodeSync Server running on http://localhost:${PORT}`);
+  console.log('');
+  console.log('Features:');
+  console.log(`  ✓ REST API for auth & sessions`);
+  console.log(`  ✓ WebSocket for real-time collaboration`);
   console.log('');
   console.log('OAuth endpoints:');
   if (process.env.GITHUB_CLIENT_ID) {
@@ -534,5 +930,12 @@ app.listen(PORT, () => {
   console.log(`  POST /auth/register - Create account with email/password`);
   console.log(`  POST /auth/login    - Login with email/password`);
   console.log(`  GET  /auth/me       - Get current user`);
+  console.log('');
+  console.log('Session endpoints:');
+  console.log(`  POST /sessions      - Create session (teachers)`);
+  console.log(`  POST /sessions/join - Join session by code`);
+  console.log(`  GET  /sessions/:code - Get session info`);
+  console.log(`  GET  /sessions/:code/files - Get session files`);
+  console.log(`  PUT  /sessions/:code/files - Save file`);
   console.log('');
 });

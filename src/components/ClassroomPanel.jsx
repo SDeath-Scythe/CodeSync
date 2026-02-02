@@ -15,20 +15,12 @@ import {
 } from 'lucide-react';
 import { useToast } from './ToastProvider';
 import { useNavigate } from 'react-router-dom';
+import { useCollaboration } from '../context/CollaborationContext';
+import { useAuth } from '../context/AuthContext';
 
-// --- MOCK DATA ---
-const PARTICIPANTS = [
-        { id: 1, name: "Mr. Davis", role: "Instructor", isSpeaking: true, isMuted: false, camOn: true, avatar: "https://i.pravatar.cc/150?u=davis" },
-        { id: 2, name: "Sarah K.", role: "Student", isSpeaking: false, isMuted: true, camOn: true, avatar: "https://i.pravatar.cc/150?u=sarah" },
-        { id: 3, name: "Mike T.", role: "Student", isSpeaking: false, isMuted: false, camOn: false, avatar: "https://i.pravatar.cc/150?u=mike" },
-        { id: 4, name: "Alex R.", role: "Student", isSpeaking: false, isMuted: true, camOn: true, avatar: "https://i.pravatar.cc/150?u=alex" },
-];
-
-const INITIAL_MESSAGES = [
-        { id: 1, sender: "Mike T.", text: "Line 24 is confusing...", time: "10:42 AM", avatar: "https://i.pravatar.cc/150?u=mike" },
-        { id: 2, sender: "Mr. Davis", text: "Check the props being passed. The state isn't updating because you're not spreading the previous state.", time: "10:43 AM", isInstructor: true, avatar: "https://i.pravatar.cc/150?u=davis" },
-        { id: 3, sender: "Sarah K.", text: "Oh, I see it now! Thanks!", time: "10:44 AM", avatar: "https://i.pravatar.cc/150?u=sarah" },
-        { id: 4, sender: "Mr. Davis", text: "```jsx\nsetState(prev => ({...prev, count: prev.count + 1}))\n```", time: "10:45 AM", isInstructor: true, avatar: "https://i.pravatar.cc/150?u=davis" },
+// --- MOCK DATA (fallback for video) ---
+const MOCK_VIDEO_USERS = [
+        { id: 'mock1', name: "Demo User", role: "teacher", isSpeaking: false, isMuted: true, camOn: false, avatar: null },
 ];
 
 const EMOJIS = ['👍', '❤️', '😊', '🎉', '🤔', '👏', '🔥', '💡', '✅', '👀'];
@@ -67,7 +59,17 @@ const VideoTile = ({ user }) => (
         </div>
 );
 
-const ChatBubble = ({ msg, isNew }) => {
+const ChatBubble = ({ msg, isNew, currentUserId }) => {
+        // Handle both old format and new server format
+        const senderName = msg.sender?.name || msg.sender || 'Unknown';
+        const senderAvatar = msg.sender?.avatar || msg.avatar || null;
+        const isInstructor = msg.sender?.role === 'teacher' || msg.isInstructor;
+        const isOwnMessage = msg.sender?.id === currentUserId;
+        const time = msg.timestamp 
+                ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : msg.time || '';
+        const text = msg.content || msg.text || '';
+        
         const renderMessage = (text) => {
                 if (!text.includes('```')) return text;
 
@@ -86,40 +88,54 @@ const ChatBubble = ({ msg, isNew }) => {
         };
 
         return (
-                <div className={`flex gap-3 mb-4 ${isNew ? 'animate-fade-in-up' : ''} ${msg.isInstructor ? 'flex-row-reverse' : ''}`}>
-                        <img
-                                src={msg.avatar}
-                                alt={msg.sender}
-                                className="w-8 h-8 rounded-full border-2 border-zinc-700/50 shrink-0"
-                        />
-                        <div className={`flex flex-col gap-1 ${msg.isInstructor ? 'items-end' : 'items-start'} max-w-[85%]`}>
-                                <div className="flex items-baseline gap-2">
-                                        <span className={`text-[11px] font-bold ${msg.isInstructor ? 'text-indigo-400' : 'text-zinc-300'}`}>
-                                                {msg.sender}
-                                        </span>
-                                        <span className="text-[9px] text-zinc-500">{msg.time}</span>
+                <div className={`flex gap-3 mb-4 ${isNew ? 'animate-fade-in-up' : ''} ${isOwnMessage || isInstructor ? 'flex-row-reverse' : ''}`}>
+                        {senderAvatar ? (
+                                <img
+                                        src={senderAvatar}
+                                        alt={senderName}
+                                        className="w-8 h-8 rounded-full border-2 border-zinc-700/50 shrink-0"
+                                />
+                        ) : (
+                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0">
+                                        <span className="text-xs font-bold text-white">{senderName.charAt(0)}</span>
                                 </div>
-                                <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed ${msg.isInstructor
-                                                ? 'bg-gradient-to-r from-indigo-600/20 to-purple-600/20 text-indigo-100 border border-indigo-500/30 rounded-tr-sm'
-                                                : 'bg-zinc-800/60 text-zinc-200 border border-zinc-700/40 rounded-tl-sm'
+                        )}
+                        <div className={`flex flex-col gap-1 ${isOwnMessage || isInstructor ? 'items-end' : 'items-start'} max-w-[85%]`}>
+                                <div className="flex items-baseline gap-2">
+                                        <span className={`text-[11px] font-bold ${isInstructor ? 'text-indigo-400' : isOwnMessage ? 'text-emerald-400' : 'text-zinc-300'}`}>
+                                                {isOwnMessage ? 'You' : senderName}
+                                        </span>
+                                        <span className="text-[9px] text-zinc-500">{time}</span>
+                                </div>
+                                <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed ${
+                                        isOwnMessage 
+                                                ? 'bg-gradient-to-r from-emerald-600/20 to-teal-600/20 text-emerald-100 border border-emerald-500/30 rounded-tr-sm'
+                                                : isInstructor
+                                                        ? 'bg-gradient-to-r from-indigo-600/20 to-purple-600/20 text-indigo-100 border border-indigo-500/30 rounded-tr-sm'
+                                                        : 'bg-zinc-800/60 text-zinc-200 border border-zinc-700/40 rounded-tl-sm'
                                         }`}>
-                                        {renderMessage(msg.text)}
+                                        {renderMessage(text)}
                                 </div>
                         </div>
                 </div>
         );
 };
 
-const TypingIndicator = ({ users }) => (
-        <div className="flex items-center gap-2 text-xs text-zinc-500 px-3 py-2">
-                <div className="flex gap-1">
-                        <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                        <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                        <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+const TypingIndicator = ({ users }) => {
+        const userNames = users.map(u => u.userName || u).filter(Boolean);
+        if (userNames.length === 0) return null;
+        
+        return (
+                <div className="flex items-center gap-2 text-xs text-zinc-500 px-3 py-2">
+                        <div className="flex gap-1">
+                                <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                                <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                                <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                        </div>
+                        <span>{userNames.join(', ')} {userNames.length === 1 ? 'is' : 'are'} typing...</span>
                 </div>
-                <span>{users.join(', ')} {users.length === 1 ? 'is' : 'are'} typing...</span>
-        </div>
-);
+        );
+};
 
 const EmojiPicker = ({ onSelect, onClose }) => (
         <div className="absolute bottom-full left-0 mb-2 bg-zinc-800/95 backdrop-blur-xl border border-zinc-700/50 rounded-xl p-2 shadow-2xl">
@@ -168,41 +184,65 @@ const StreamSection = ({ title, icon, defaultExpanded = true, children, badge })
 // --- MAIN COMPONENT ---
 
 const ClassroomPanel = ({ onClose, isFullscreen = false, onToggleFullscreen }) => {
+        const { user } = useAuth();
+        const { 
+                participants, 
+                messages, 
+                typingUsers, 
+                sendMessage, 
+                startTyping, 
+                stopTyping,
+                isConnected 
+        } = useCollaboration();
+        
         const [activeTab, setActiveTab] = useState('stream');
         const [micOn, setMicOn] = useState(false);
         const [camOn, setCamOn] = useState(true);
         const [isScreenSharing, setIsScreenSharing] = useState(false);
         const [chatInput, setChatInput] = useState("");
-        const [messages, setMessages] = useState(INITIAL_MESSAGES);
         const [showEmoji, setShowEmoji] = useState(false);
-        const [typingUsers, setTypingUsers] = useState(['Sarah K.']);
         const chatEndRef = useRef(null);
+        const typingTimeoutRef = useRef(null);
         const toast = useToast();
         const navigate = useNavigate();
 
+        // Auto-scroll to new messages
         useEffect(() => {
                 chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
         }, [messages]);
 
-        useEffect(() => {
-                const timer = setTimeout(() => setTypingUsers([]), 5000);
-                return () => clearTimeout(timer);
-        }, []);
+        // Handle typing indicator with debounce
+        const handleInputChange = (e) => {
+                setChatInput(e.target.value);
+                
+                // Clear existing timeout
+                if (typingTimeoutRef.current) {
+                        clearTimeout(typingTimeoutRef.current);
+                }
+                
+                // Start typing indicator
+                startTyping();
+                
+                // Stop typing after 2 seconds of no input
+                typingTimeoutRef.current = setTimeout(() => {
+                        stopTyping();
+                }, 2000);
+        };
 
         const handleSendMessage = () => {
                 if (!chatInput.trim()) return;
-
-                const newMessage = {
-                        id: Date.now(),
-                        sender: "You",
-                        text: chatInput,
-                        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                        avatar: "https://i.pravatar.cc/150?u=you",
-                        isNew: true
-                };
-
-                setMessages(prev => [...prev, newMessage]);
+                
+                console.log('💬 Attempting to send message:', chatInput.trim());
+                console.log('🔗 Is connected:', isConnected);
+                
+                // Send via WebSocket
+                sendMessage(chatInput.trim());
                 setChatInput("");
+                stopTyping();
+                
+                if (typingTimeoutRef.current) {
+                        clearTimeout(typingTimeoutRef.current);
+                }
         };
 
         const handleEmojiSelect = (emoji) => {
@@ -242,10 +282,20 @@ const ClassroomPanel = ({ onClose, isFullscreen = false, onToggleFullscreen }) =
 
         const handleLeaveCall = () => {
                 toast.warning('Leaving Session', 'Disconnecting from the call...');
-                setTimeout(() => navigate('/'), 1000);
+                localStorage.removeItem('codesync_current_session');
+                setTimeout(() => navigate('/session'), 1000);
         };
 
-        const unreadCount = 3;
+        // Track unread messages when not on chat tab
+        const [lastSeenMessageCount, setLastSeenMessageCount] = useState(0);
+        const unreadCount = activeTab === 'chat' ? 0 : Math.max(0, messages.length - lastSeenMessageCount);
+        
+        // Reset unread count when switching to chat tab
+        useEffect(() => {
+                if (activeTab === 'chat') {
+                        setLastSeenMessageCount(messages.length);
+                }
+        }, [activeTab, messages.length]);
 
         return (
                 <div className="flex flex-col h-full bg-zinc-900/80 backdrop-blur-sm border-l border-indigo-500/20">
@@ -279,7 +329,10 @@ const ClassroomPanel = ({ onClose, isFullscreen = false, onToggleFullscreen }) =
                                 </div>
                                 <div className="flex items-center gap-2">
                                         <Users className="w-4 h-4 text-zinc-400" />
-                                        <span className="text-[11px] text-zinc-500 font-mono">{PARTICIPANTS.length}/25</span>
+                                        <span className="text-[11px] text-zinc-500 font-mono">
+                                                {participants.length > 0 ? participants.length : '0'}/25
+                                                {isConnected && <span className="ml-1 w-1.5 h-1.5 bg-emerald-500 rounded-full inline-block"></span>}
+                                        </span>
                                         {onToggleFullscreen && (
                                                 <button
                                                         onClick={onToggleFullscreen}
@@ -321,19 +374,42 @@ const ClassroomPanel = ({ onClose, isFullscreen = false, onToggleFullscreen }) =
                                                         icon={<div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />}
                                                         defaultExpanded={true}
                                                 >
-                                                        <VideoTile user={PARTICIPANTS[0]} />
+                                                        {/* Video stream placeholder - WebRTC to be implemented */}
+                                                        {participants.length > 0 ? (
+                                                                <VideoTile user={{
+                                                                        ...participants[0],
+                                                                        isSpeaking: true,
+                                                                        isMuted: false,
+                                                                        camOn: false
+                                                                }} />
+                                                        ) : (
+                                                                <div className="aspect-video bg-zinc-900/50 rounded-xl border-2 border-zinc-700/30 flex items-center justify-center">
+                                                                        <span className="text-zinc-500 text-sm">Waiting for participants...</span>
+                                                                </div>
+                                                        )}
                                                 </StreamSection>
 
                                                 <StreamSection 
                                                         title="Participants" 
                                                         icon={<Users className="w-3 h-3 text-zinc-500" />}
                                                         defaultExpanded={true}
-                                                        badge={`${PARTICIPANTS.length - 1}`}
+                                                        badge={`${Math.max(0, participants.length - 1)}`}
                                                 >
                                                         <div className="grid grid-cols-2 gap-2">
-                                                                {PARTICIPANTS.slice(1).map(user => (
-                                                                        <VideoTile key={user.id} user={user} />
-                                                                ))}
+                                                                {participants.length > 1 ? (
+                                                                        participants.slice(1).map(p => (
+                                                                                <VideoTile key={p.id} user={{
+                                                                                        ...p,
+                                                                                        isSpeaking: false,
+                                                                                        isMuted: true,
+                                                                                        camOn: false
+                                                                                }} />
+                                                                        ))
+                                                                ) : (
+                                                                        <div className="col-span-2 text-center py-4 text-zinc-500 text-xs">
+                                                                                No other participants yet
+                                                                        </div>
+                                                                )}
                                                         </div>
                                                 </StreamSection>
                                         </>
@@ -342,7 +418,14 @@ const ClassroomPanel = ({ onClose, isFullscreen = false, onToggleFullscreen }) =
                                 {activeTab === 'chat' && (
                                         <div className="flex flex-col h-full">
                                                 <div className="flex-1">
-                                                        {messages.map(msg => <ChatBubble key={msg.id} msg={msg} />)}
+                                                        {messages.length === 0 ? (
+                                                                <div className="flex flex-col items-center justify-center h-32 text-zinc-500">
+                                                                        <span className="text-sm">No messages yet</span>
+                                                                        <span className="text-xs">Start the conversation!</span>
+                                                                </div>
+                                                        ) : (
+                                                                messages.map(msg => <ChatBubble key={msg.id} msg={msg} currentUserId={user?.id} />)
+                                                        )}
                                                         {typingUsers.length > 0 && <TypingIndicator users={typingUsers} />}
                                                         <div ref={chatEndRef} />
                                                 </div>
@@ -370,7 +453,7 @@ const ClassroomPanel = ({ onClose, isFullscreen = false, onToggleFullscreen }) =
                                                         <input
                                                                 type="text"
                                                                 value={chatInput}
-                                                                onChange={(e) => setChatInput(e.target.value)}
+                                                                onChange={handleInputChange}
                                                                 onKeyPress={handleKeyPress}
                                                                 placeholder="Type a message..."
                                                                 className="flex-1 bg-transparent text-sm text-white py-2.5 focus:outline-none placeholder-zinc-500"

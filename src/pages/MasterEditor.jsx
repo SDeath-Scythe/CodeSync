@@ -1,4 +1,5 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import TopBar from '../components/TopBar'
 import SideBar from '../components/SideBar'
 import CodeEditor from '../components/CodeEdtor'
@@ -6,6 +7,8 @@ import ClassroomPanel from '../components/ClassroomPanel'
 import StatusBar from '../components/StatusBar'
 import ResizablePanel from '../components/ResizablePanel'
 import { FileSystemProvider } from '../context/FileSystemContext'
+import { useCollaboration } from '../context/CollaborationContext'
+import { useToast } from '../components/ToastProvider'
 
 // Maximize icon
 const MaximizeIcon = () => (
@@ -47,11 +50,37 @@ const PanelHeader = ({ title, onClose, children, className = '' }) => (
 );
 
 function MasterEditor() {
+        const navigate = useNavigate();
+        const toast = useToast();
+        const { joinSession, currentSession, participants, isConnected } = useCollaboration();
+        
         const [showSidebar, setShowSidebar] = useState(true);
         const [showClassroom, setShowClassroom] = useState(true);
         const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
         const [classroomCollapsed, setClassroomCollapsed] = useState(false);
         const [fullscreenMode, setFullscreenMode] = useState(null); // null, 'code', or 'classroom'
+        const [sessionInfo, setSessionInfo] = useState(null);
+
+        // Load session from localStorage and join
+        useEffect(() => {
+                const storedSession = localStorage.getItem('codesync_current_session');
+                if (storedSession) {
+                        try {
+                                const session = JSON.parse(storedSession);
+                                setSessionInfo(session);
+                                joinSession(session.code);
+                                toast.success('Connected', `Joined session: ${session.title}`);
+                        } catch (err) {
+                                console.error('Failed to parse session:', err);
+                                toast.error('Error', 'Invalid session data');
+                                navigate('/session');
+                        }
+                } else {
+                        // No session, redirect to session hub
+                        toast.warning('No Session', 'Please join or create a session first');
+                        navigate('/session');
+                }
+        }, []);
 
         const handleSidebarCollapse = useCallback((collapsed) => {
                 setSidebarCollapsed(collapsed);

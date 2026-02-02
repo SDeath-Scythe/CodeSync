@@ -29,6 +29,8 @@ model User {
   // Relations
   sessionsOwned Session[] @relation("SessionOwner")
   sessionsJoined SessionParticipant[]
+  chatMessages  ChatMessage[]
+  filesCreated  SessionFile[] @relation("FilesCreated")
   
   @@unique([provider, providerId])
 }
@@ -48,6 +50,12 @@ model Session {
   // Participants
   participants SessionParticipant[]
   
+  // Files in session
+  files       SessionFile[]
+  
+  // Chat messages
+  messages    ChatMessage[]
+  
   // Timestamps
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -63,4 +71,42 @@ model SessionParticipant {
   joinedAt  DateTime @default(now())
   
   @@unique([sessionId, userId])
+}
+
+// Files stored in a session
+model SessionFile {
+  id        String   @id @default(cuid())
+  sessionId String
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  
+  name      String   // File name
+  path      String   // Full path like "src/components/Button.jsx"
+  content   String   @default("") // File content
+  language  String?  // Language hint (javascript, css, etc)
+  
+  // For folder structure
+  isFolder  Boolean  @default(false)
+  parentPath String? // Parent folder path
+  
+  // Ownership tracking
+  createdById String?  // Who created the file
+  createdBy   User?    @relation("FilesCreated", fields: [createdById], references: [id])
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([sessionId, path])
+}
+
+// Chat messages in a session
+model ChatMessage {
+  id        String   @id @default(cuid())
+  sessionId String
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  
+  senderId  String
+  sender    User     @relation(fields: [senderId], references: [id])
+  
+  content   String
+  timestamp DateTime @default(now())
 }
