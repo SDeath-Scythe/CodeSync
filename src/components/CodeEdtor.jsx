@@ -17,7 +17,7 @@ import {
  * CodeEditor Component
  * Uses Monaco Editor for the editing surface and connects to FileSystemContext.
  */
-const CodeEditor = () => {
+const CodeEditor = ({ isFullscreen = false, onToggleFullscreen }) => {
   const {
     openFiles,
     activeFileId,
@@ -359,9 +359,22 @@ const CodeEditor = () => {
           );
         })}
         <div className="flex-1 flex justify-end items-center pr-2 gap-2 text-zinc-400 bg-zinc-900/80">
-          <Play className="w-4 h-4 hover:text-green-400 cursor-pointer" />
-          <Split className="w-4 h-4 hover:text-white cursor-pointer" />
-          <MoreHorizontal className="w-4 h-4 hover:text-white cursor-pointer" />
+          <Play className="w-4 h-4 hover:text-green-400 cursor-pointer" title="Run Code" />
+          <Split className="w-4 h-4 hover:text-white cursor-pointer" title="Split Editor" />
+          {onToggleFullscreen && (
+            <button
+              onClick={onToggleFullscreen}
+              className="p-1 hover:bg-indigo-500/20 rounded transition-colors"
+              title={isFullscreen ? "Exit Fullscreen" : "Fullscreen Editor"}
+            >
+              {isFullscreen ? (
+                <Minimize2 className="w-4 h-4 hover:text-indigo-400 cursor-pointer" />
+              ) : (
+                <Maximize2 className="w-4 h-4 hover:text-indigo-400 cursor-pointer" />
+              )}
+            </button>
+          )}
+          <MoreHorizontal className="w-4 h-4 hover:text-white cursor-pointer" title="More Actions" />
         </div>
       </div>
 

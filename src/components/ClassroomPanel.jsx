@@ -167,7 +167,7 @@ const StreamSection = ({ title, icon, defaultExpanded = true, children, badge })
 
 // --- MAIN COMPONENT ---
 
-const ClassroomPanel = () => {
+const ClassroomPanel = ({ onClose, isFullscreen = false, onToggleFullscreen }) => {
         const [activeTab, setActiveTab] = useState('stream');
         const [micOn, setMicOn] = useState(false);
         const [camOn, setCamOn] = useState(true);
@@ -280,6 +280,35 @@ const ClassroomPanel = () => {
                                 <div className="flex items-center gap-2">
                                         <Users className="w-4 h-4 text-zinc-400" />
                                         <span className="text-[11px] text-zinc-500 font-mono">{PARTICIPANTS.length}/25</span>
+                                        {onToggleFullscreen && (
+                                                <button
+                                                        onClick={onToggleFullscreen}
+                                                        className="p-1 hover:bg-indigo-500/20 rounded text-zinc-500 hover:text-indigo-400 transition-all duration-150"
+                                                        title={isFullscreen ? "Exit Fullscreen" : "Fullscreen Chat"}
+                                                >
+                                                        {isFullscreen ? (
+                                                                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                                                                        <path d="M3 5v9h9V5H3zm8 8H4V6h7v7z"/>
+                                                                        <path d="M5 5h1V4h7v7h-1v1h2V3H5v2z"/>
+                                                                </svg>
+                                                        ) : (
+                                                                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                                                                        <path d="M3 3v10h10V3H3zm9 9H4V4h8v8z"/>
+                                                                </svg>
+                                                        )}
+                                                </button>
+                                        )}
+                                        {onClose && !isFullscreen && (
+                                                <button
+                                                        onClick={onClose}
+                                                        className="p-1 hover:bg-red-500/20 rounded text-zinc-500 hover:text-red-400 transition-all duration-150"
+                                                        title="Close Classroom"
+                                                >
+                                                        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                                                                <path d="M8 8.707l3.646 3.647.708-.707L8.707 8l3.647-3.646-.707-.708L8 7.293 4.354 3.646l-.707.708L7.293 8l-3.646 3.646.707.708L8 8.707z"/>
+                                                        </svg>
+                                                </button>
+                                        )}
                                 </div>
                         </div>
 

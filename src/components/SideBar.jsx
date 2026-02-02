@@ -225,7 +225,7 @@ const FileTreeItem = ({
   );
 };
 
-const SideBar = () => {
+const SideBar = ({ onClose }) => {
   const {
     fileStructure,
     createItem,
@@ -449,7 +449,7 @@ const SideBar = () => {
       onDrop={handleSidebarDrop}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#313244] bg-[#181825]/50">
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-[#313244] bg-[#181825]/50">
         <span className="text-xs font-semibold text-[#89b4fa] uppercase tracking-wider">Explorer</span>
         <div className="flex items-center gap-1">
           <button
@@ -482,6 +482,17 @@ const SideBar = () => {
               <path d="M14.5 3H7.71l-1-1H1.5l-.5.5v11l.5.5h13l.5-.5v-10l-.5-.5zm-.51 8.49V13H2V5h12v6.49z"/>
             </svg>
           </button>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-1.5 hover:bg-red-500/20 rounded-md text-[#6c7086] hover:text-red-400 transition-all duration-150"
+              title="Close Explorer"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 8.707l3.646 3.647.708-.707L8.707 8l3.647-3.646-.707-.708L8 7.293 4.354 3.646l-.707.708L7.293 8l-3.646 3.646.707.708L8 8.707z"/>
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 
