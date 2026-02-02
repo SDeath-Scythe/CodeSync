@@ -764,10 +764,20 @@ io.on('connection', (socket) => {
       // Join the socket room
       socket.join(currentSession);
       
-      // Track user in session
+      // Track user in session - use user.id as key to prevent duplicates
       if (!sessionUsers.has(currentSession)) {
         sessionUsers.set(currentSession, new Map());
       }
+      
+      // Check if user already exists (reconnecting)
+      const existingEntry = Array.from(sessionUsers.get(currentSession).entries())
+        .find(([_, u]) => u.id === user.id);
+      
+      if (existingEntry) {
+        // Update the existing entry with new socket id
+        sessionUsers.get(currentSession).delete(existingEntry[0]);
+      }
+      
       sessionUsers.get(currentSession).set(socket.id, {
         ...user,
         socketId: socket.id,
@@ -810,13 +820,28 @@ io.on('connection', (socket) => {
 
   // Cursor position update
   socket.on('cursor-move', ({ fileId, position, selection }) => {
-    if (!currentSession || !currentUser) return;
+    if (!currentSession || !currentUser) {
+      console.log('📍 cursor-move BLOCKED - no session or user:', { currentSession, currentUser: currentUser?.name });
+      return;
+    }
+    
+    console.log('📍 cursor-move received:', {
+      from: currentUser.name,
+      userId: currentUser.id,
+      fileId,
+      position,
+      session: currentSession
+    });
     
     // Update user's cursor in tracking
     const users = sessionUsers.get(currentSession);
     if (users?.has(socket.id)) {
       users.get(socket.id).cursorPosition = { fileId, position, selection };
     }
+    
+    // Get list of sockets in the room
+    const room = io.sockets.adapter.rooms.get(currentSession);
+    console.log('📍 Broadcasting cursor-update to room:', currentSession, 'sockets in room:', room?.size || 0);
     
     socket.to(currentSession).emit('cursor-update', {
       userId: currentUser.id,

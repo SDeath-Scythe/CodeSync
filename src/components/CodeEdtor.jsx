@@ -1,6 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
 import { useFileSystem } from '../context/FileSystemContext';
+import { useCollaboration } from '../context/CollaborationContext';
+import { useAuth } from '../context/AuthContext';
+import socketService from '../services/socketService';
 import {
   X,
   MoreHorizontal,
@@ -10,14 +13,23 @@ import {
   Maximize2,
   Trash2,
   Plus,
-  Minimize2
+  Minimize2,
+  Users,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 
 /**
  * CodeEditor Component
  * Uses Monaco Editor for the editing surface and connects to FileSystemContext.
  */
-const CodeEditor = ({ isFullscreen = false, onToggleFullscreen }) => {
+const CodeEditor = ({ 
+  isFullscreen = false, 
+  onToggleFullscreen, 
+  readOnly = false,
+  showCursors = true,
+  onToggleCursors
+}) => {
   const {
     openFiles,
     activeFileId,
@@ -31,6 +43,9 @@ const CodeEditor = ({ isFullscreen = false, onToggleFullscreen }) => {
     fileStructure
   } = useFileSystem();
 
+  const { remoteCursors, isConnected, sendCodeChange, pendingChanges, consumePendingChanges } = useCollaboration();
+  const { user } = useAuth();
+
   // Terminal State
   const [terminalOpen, setTerminalOpen] = useState(true);
   const [terminalHeight, setTerminalHeight] = useState(192);
@@ -40,6 +55,10 @@ const CodeEditor = ({ isFullscreen = false, onToggleFullscreen }) => {
   // Monaco Refs
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
+  const editorContainerRef = useRef(null);
+  const decorationsRef = useRef([]);
+  const cursorThrottleRef = useRef(null);
+  const codeChangeThrottleRef = useRef(null);
 
   // Get active file details
   const activeFile = activeFileId ? findItemById(fileStructure, activeFileId) : null;
@@ -91,9 +110,267 @@ const CodeEditor = ({ isFullscreen = false, onToggleFullscreen }) => {
     return iconMap[ext] || { icon: '📄', color: 'text-gray-400' };
   };
 
+  // Remote cursor labels state (for floating labels)
+  const [cursorLabels, setCursorLabels] = useState([]);
+
+  // Send cursor position to server (throttled for performance - 50ms)
+  const sendCursorPosition = useCallback((position, selection) => {
+    if (isConnected && activeFileId) {
+      // Clear previous pending update
+      if (cursorThrottleRef.current) {
+        clearTimeout(cursorThrottleRef.current);
+      }
+      // Send immediately but prevent rapid successive updates
+      cursorThrottleRef.current = setTimeout(() => {
+        socketService.sendCursorMove(activeFileId, position, selection);
+        cursorThrottleRef.current = null;
+      }, 30); // 30ms throttle for smooth but not overwhelming updates
+    }
+  }, [isConnected, activeFileId]);
+
+  // Update remote cursor decorations and labels
+  useEffect(() => {
+    if (!editorRef.current || !monacoRef.current || !activeFileId) return;
+
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    
+    // Debug
+    console.log('📍 Cursor effect - readOnly:', readOnly, 'showCursors:', showCursors);
+    console.log('📍 remoteCursors:', Array.from(remoteCursors.entries()));
+    console.log('📍 activeFileId:', activeFileId);
+    
+    // If cursors are hidden, clear all decorations
+    if (!showCursors) {
+      decorationsRef.current = editor.deltaDecorations(decorationsRef.current, []);
+      setCursorLabels([]);
+      return;
+    }
+    
+    // Filter cursors for the current file
+    // Only filter out own cursor if NOT in readOnly mode (teachers don't see their own cursor)
+    // Students (readOnly) see ALL cursors including the teacher's
+    const currentUserId = user?.id?.toString();
+    const cursorsForFile = Array.from(remoteCursors.entries())
+      .filter(([userId, data]) => {
+        const matches = data.fileId === activeFileId;
+        // In readOnly mode (student), show all cursors. Otherwise filter out own cursor.
+        const shouldShow = readOnly || !currentUserId || userId.toString() !== currentUserId;
+        console.log(`📍 Cursor ${userId}: fileId=${data.fileId}, matches=${matches}, readOnly=${readOnly}, shouldShow=${shouldShow}`);
+        return matches && shouldShow;
+      });
+    
+    console.log('📍 cursorsForFile after filter:', cursorsForFile);
+    
+    // Create decorations for each remote cursor
+    const decorations = cursorsForFile.flatMap(([userId, data]) => {
+      const { userName, position, selection } = data;
+      const decos = [];
+      
+      if (position) {
+        // Cursor line decoration - full line highlight
+        decos.push({
+          range: new monaco.Range(position.lineNumber, 1, position.lineNumber, 1),
+          options: {
+            isWholeLine: false,
+            className: 'remote-cursor-marker',
+            glyphMarginClassName: 'remote-cursor-glyph',
+            stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges
+          }
+        });
+        
+        // Cursor position indicator
+        decos.push({
+          range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column),
+          options: {
+            className: 'remote-cursor-position',
+            beforeContentClassName: 'remote-cursor-line',
+            stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges
+          }
+        });
+      }
+      
+      if (selection && (selection.startLineNumber !== selection.endLineNumber || selection.startColumn !== selection.endColumn)) {
+        // Selection highlight
+        decos.push({
+          range: new monaco.Range(
+            selection.startLineNumber,
+            selection.startColumn,
+            selection.endLineNumber,
+            selection.endColumn
+          ),
+          options: {
+            className: 'remote-selection',
+            hoverMessage: { value: `${userName}'s selection` }
+          }
+        });
+      }
+      
+      return decos;
+    });
+    
+    // Apply decorations
+    decorationsRef.current = editor.deltaDecorations(decorationsRef.current, decorations);
+
+    // Calculate floating label positions using Monaco's coordinate conversion
+    const updateCursorLabelPositions = () => {
+      const labels = cursorsForFile.map(([userId, data]) => {
+        const { userName, position } = data;
+        if (!position) return null;
+        
+        try {
+          // Use Monaco's built-in method to get the exact pixel position
+          const targetPosition = { lineNumber: position.lineNumber, column: position.column };
+          
+          // Get the top position for the line
+          const topForLine = editor.getTopForLineNumber(position.lineNumber);
+          const scrollTop = editor.getScrollTop();
+          const lineHeight = editor.getOption(monacoRef.current.editor.EditorOption.lineHeight);
+          
+          // Calculate left position using column
+          const layoutInfo = editor.getLayoutInfo();
+          const contentLeft = layoutInfo.contentLeft; // accounts for line numbers, glyph margin, etc.
+          
+          // Approximate character width (Monaco uses monospace font)
+          const fontInfo = editor.getOption(monacoRef.current.editor.EditorOption.fontInfo);
+          const charWidth = fontInfo.typicalHalfwidthCharacterWidth || 7.8;
+          
+          // Calculate pixel positions
+          const top = topForLine - scrollTop;
+          const left = contentLeft + (position.column - 1) * charWidth;
+          
+          // Only show if visible in viewport
+          if (top < 0 || top > editor.getLayoutInfo().height) return null;
+          
+          return {
+            id: userId,
+            userName,
+            top,
+            left
+          };
+        } catch (e) {
+          console.error('Error calculating cursor position:', e);
+          return null;
+        }
+      }).filter(Boolean);
+      
+      setCursorLabels(labels);
+    };
+    
+    updateCursorLabelPositions();
+  }, [remoteCursors, activeFileId, showCursors]);
+
+  // Update label positions on scroll
+  useEffect(() => {
+    if (!editorRef.current || !monacoRef.current || !showCursors) return;
+    
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    
+    const updateLabels = () => {
+      if (!showCursors) {
+        setCursorLabels([]);
+        return;
+      }
+      // In readOnly mode (student), show all cursors. Otherwise filter out own cursor.
+      const currentUserId = user?.id?.toString();
+      const cursorsForFile = Array.from(remoteCursors.entries())
+        .filter(([userId, data]) => {
+          const matches = data.fileId === activeFileId;
+          const shouldShow = readOnly || (currentUserId && userId.toString() !== currentUserId);
+          return matches && shouldShow;
+        });
+      
+      const labels = cursorsForFile.map(([userId, data]) => {
+        const { userName, position } = data;
+        if (!position) return null;
+        
+        try {
+          // Get the top position for the line
+          const topForLine = editor.getTopForLineNumber(position.lineNumber);
+          const scrollTop = editor.getScrollTop();
+          const lineHeight = editor.getOption(monaco.editor.EditorOption.lineHeight);
+          
+          // Calculate left position using column
+          const layoutInfo = editor.getLayoutInfo();
+          const contentLeft = layoutInfo.contentLeft;
+          
+          // Get character width
+          const fontInfo = editor.getOption(monaco.editor.EditorOption.fontInfo);
+          const charWidth = fontInfo.typicalHalfwidthCharacterWidth || 7.8;
+          
+          // Calculate pixel positions
+          const top = topForLine - scrollTop;
+          const left = contentLeft + (position.column - 1) * charWidth;
+          
+          // Only show if visible in viewport
+          if (top < 0 || top > layoutInfo.height) return null;
+          
+          return {
+            id: userId,
+            userName,
+            top,
+            left
+          };
+        } catch (e) {
+          return null;
+        }
+      }).filter(Boolean);
+      
+      setCursorLabels(labels);
+    };
+    
+    const scrollDisposable = editor.onDidScrollChange(updateLabels);
+    const layoutDisposable = editor.onDidLayoutChange(updateLabels);
+    
+    // Initial update
+    updateLabels();
+    
+    return () => {
+      scrollDisposable.dispose();
+      layoutDisposable.dispose();
+    };
+  }, [remoteCursors, activeFileId, user?.id, showCursors, readOnly]);
+
   const handleEditorDidMount = (editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
+
+    // Track cursor position changes
+    editor.onDidChangeCursorPosition((e) => {
+      const position = e.position;
+      const selection = editor.getSelection();
+      sendCursorPosition(position, selection);
+    });
+
+    // Track selection changes
+    editor.onDidChangeCursorSelection((e) => {
+      const position = editor.getPosition();
+      const selection = e.selection;
+      sendCursorPosition(position, selection);
+    });
+
+    // Add CSS for remote cursors
+    const styleSheet = document.createElement('style');
+    styleSheet.textContent = `
+      .remote-cursor-line {
+        border-left: 2px solid #818cf8 !important;
+        margin-left: -1px;
+      }
+      .remote-cursor-marker {
+        background-color: rgba(129, 140, 248, 0.1);
+      }
+      .remote-selection {
+        background-color: rgba(129, 140, 248, 0.25) !important;
+      }
+      .remote-cursor-glyph {
+        background: linear-gradient(135deg, #818cf8, #a855f7);
+        width: 3px !important;
+        margin-left: 3px;
+        border-radius: 2px;
+      }
+    `;
+    document.head.appendChild(styleSheet);
 
     // Register JSX language
     monaco.languages.register({ id: 'jsx' });
@@ -274,12 +551,44 @@ const CodeEditor = ({ isFullscreen = false, onToggleFullscreen }) => {
     });
   };
 
-  // Handle content change
+  // Handle content change - send to other users in real-time
   const handleEditorChange = (value) => {
     if (activeFileId && value !== undefined) {
       updateFileContent(activeFileId, value);
+      // Send code change to other users with slight debounce (100ms)
+      if (isConnected) {
+        if (codeChangeThrottleRef.current) {
+          clearTimeout(codeChangeThrottleRef.current);
+        }
+        codeChangeThrottleRef.current = setTimeout(() => {
+          const position = editorRef.current?.getPosition();
+          sendCodeChange(activeFileId, value, position);
+          codeChangeThrottleRef.current = null;
+        }, 100); // 100ms debounce for code changes
+      }
     }
   };
+
+  // Listen for incoming code changes from other users
+  useEffect(() => {
+    if (!activeFileId || !editorRef.current) return;
+    
+    // Find changes for the current file
+    const changes = pendingChanges.filter(c => c.fileId === activeFileId);
+    if (changes.length === 0) return;
+    
+    // Apply the latest change
+    const latestChange = changes[changes.length - 1];
+    const currentContent = getFileContent(activeFileId);
+    
+    // Only update if content is different (avoid infinite loop)
+    if (latestChange.content !== currentContent) {
+      updateFileContent(activeFileId, latestChange.content);
+    }
+    
+    // Mark changes as consumed
+    consumePendingChanges(activeFileId);
+  }, [pendingChanges, activeFileId, getFileContent, updateFileContent, consumePendingChanges]);
 
   // --- TAB ACTIONS ---
   const handleTabClick = (id) => {
@@ -359,6 +668,21 @@ const CodeEditor = ({ isFullscreen = false, onToggleFullscreen }) => {
           );
         })}
         <div className="flex-1 flex justify-end items-center pr-2 gap-2 text-zinc-400 bg-zinc-900/80">
+          {/* Cursor visibility toggle - only show if callback is provided */}
+          {onToggleCursors && (
+            <button
+              onClick={onToggleCursors}
+              className={`p-1 rounded transition-colors flex items-center gap-1 ${showCursors ? 'hover:bg-indigo-500/20 text-indigo-400' : 'hover:bg-zinc-700/50 text-zinc-500'}`}
+              title={showCursors ? "Hide Remote Cursors" : "Show Remote Cursors"}
+            >
+              {showCursors ? (
+                <Eye className="w-4 h-4" />
+              ) : (
+                <EyeOff className="w-4 h-4" />
+              )}
+              <Users className="w-3.5 h-3.5" />
+            </button>
+          )}
           <Play className="w-4 h-4 hover:text-green-400 cursor-pointer" title="Run Code" />
           <Split className="w-4 h-4 hover:text-white cursor-pointer" title="Split Editor" />
           {onToggleFullscreen && (
@@ -395,44 +719,68 @@ const CodeEditor = ({ isFullscreen = false, onToggleFullscreen }) => {
       </div>
 
       {/* 3. EDITOR AREA (MONACO) */}
-      <div className="flex-1 relative overflow-hidden flex flex-col">
+      <div className="flex-1 relative overflow-hidden flex flex-col" ref={editorContainerRef}>
         {activeFile ? (
-          <Editor
-            height="100%"
-            language={getLanguage(activeFile.name)}
-            theme="vs-dark"
-            value={codeContent}
-            onChange={handleEditorChange}
-            onMount={handleEditorDidMount}
-            path={'file:///' + activeFile.name}
-            options={{
-              minimap: { enabled: false },
-              fontSize: 14,
-              lineNumbers: 'on',
-              roundedSelection: false,
-              scrollBeyondLastLine: false,
-              readOnly: false,
-              automaticLayout: true,
-              fontFamily: "'Fira Code', 'Droid Sans Mono', 'monospace'",
-              cursorBlinking: 'smooth',
-              smoothScrolling: true,
-              inlineSuggest: { enabled: true },
-              quickSuggestions: {
-                other: true,
-                comments: false,
-                strings: true,
-              },
-              suggest: {
-                localityBonus: true,
-                shareSuggestSelections: true,
-              },
-              acceptSuggestionOnCommitCharacter: true,
-              acceptSuggestionOnEnter: 'on',
-              tabSize: 2,
-              useTabStops: true,
-              wordBasedSuggestions: 'currentDocument',
-            }}
-          />
+          <>
+            <div className="absolute inset-0">
+              <Editor
+                height="100%"
+                language={getLanguage(activeFile.name)}
+                theme="vs-dark"
+                value={codeContent}
+                onChange={readOnly ? undefined : handleEditorChange}
+                onMount={handleEditorDidMount}
+                path={'file:///' + activeFile.name}
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 14,
+                  lineNumbers: 'on',
+                  roundedSelection: false,
+                  scrollBeyondLastLine: false,
+                  readOnly: readOnly,
+                  automaticLayout: true,
+                  fontFamily: "'Fira Code', 'Droid Sans Mono', 'monospace'",
+                  cursorBlinking: 'smooth',
+                  smoothScrolling: true,
+                  glyphMargin: true,
+                  inlineSuggest: { enabled: !readOnly },
+                  quickSuggestions: readOnly ? false : {
+                    other: true,
+                    comments: false,
+                    strings: true,
+                  },
+                  suggest: {
+                    localityBonus: true,
+                    shareSuggestSelections: true,
+                  },
+                  acceptSuggestionOnCommitCharacter: !readOnly,
+                  acceptSuggestionOnEnter: readOnly ? 'off' : 'on',
+                  tabSize: 2,
+                  useTabStops: true,
+                  wordBasedSuggestions: readOnly ? 'off' : 'currentDocument',
+                }}
+              />
+            </div>
+            
+            {/* Floating Remote Cursor Labels - positioned relative to editor */}
+            {showCursors && cursorLabels.map((label) => (
+              <div
+                key={label.id}
+                className="absolute pointer-events-none z-50"
+                style={{
+                  top: label.top - 2, // position just above the line
+                  left: label.left,
+                  transform: 'translateY(-100%)', // move label above the cursor position
+                }}
+              >
+                <div className="bg-gradient-to-r from-indigo-500 to-purple-500 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow-lg flex items-center gap-1 whitespace-nowrap">
+                  <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>
+                  {label.userName}
+                </div>
+                <div className="w-0.5 h-3 bg-gradient-to-b from-indigo-500 to-purple-500 ml-1"></div>
+              </div>
+            ))}
+          </>
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-zinc-500 select-none">
             <div className="text-4xl mb-4 text-zinc-700">⌘</div>

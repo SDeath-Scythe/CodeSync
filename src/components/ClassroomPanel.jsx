@@ -543,8 +543,8 @@ const ClassroomPanel = ({ onClose, isFullscreen = false, onToggleFullscreen }) =
                                                 >
                                                         <div className="space-y-2">
                                                                 {participants.length > 0 ? (
-                                                                        participants.map(p => (
-                                                                                <div key={p.id} className="flex items-center gap-3 p-2 bg-zinc-800/30 rounded-lg">
+                                                                        participants.map((p, index) => (
+                                                                                <div key={`participant-${index}`} className="flex items-center gap-3 p-2 bg-zinc-800/30 rounded-lg">
                                                                                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
                                                                                                 <span className="text-xs font-bold text-white">{(p.name || 'U').charAt(0)}</span>
                                                                                         </div>

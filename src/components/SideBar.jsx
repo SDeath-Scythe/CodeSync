@@ -76,7 +76,8 @@ const FileTreeItem = ({
   onRenameChange,
   onRenameSubmit,
   onRenameCancel,
-  renameError
+  renameError,
+  readOnly = false
 }) => {
   const isFolder = item.type === 'folder';
   const isSelected = selectedId === item.id;
@@ -116,18 +117,18 @@ const FileTreeItem = ({
   const handleContextMenu = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    onContextMenu(e, item);
+    if (onContextMenu) onContextMenu(e, item);
   };
 
   const handleDragStart = (e) => {
     e.stopPropagation();
-    onDragStart(e, item);
+    if (onDragStart) onDragStart(e, item);
   };
 
   const handleDragOver = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (isFolder && draggedItem?.id !== item.id) {
+    if (isFolder && draggedItem?.id !== item.id && onDragOver) {
       onDragOver(e, item);
     }
   };
@@ -135,7 +136,7 @@ const FileTreeItem = ({
   const handleDrop = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (isFolder && draggedItem?.id !== item.id) {
+    if (isFolder && draggedItem?.id !== item.id && onDrop) {
       onDrop(e, item);
     }
   };
@@ -161,12 +162,12 @@ const FileTreeItem = ({
         `}
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
         onClick={handleClick}
-        onContextMenu={handleContextMenu}
-        draggable={!isRenaming}
-        onDragStart={handleDragStart}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
-        onDragEnd={onDragEnd}
+        onContextMenu={readOnly ? undefined : handleContextMenu}
+        draggable={!readOnly && !isRenaming}
+        onDragStart={readOnly ? undefined : handleDragStart}
+        onDragOver={readOnly ? undefined : handleDragOver}
+        onDrop={readOnly ? undefined : handleDrop}
+        onDragEnd={readOnly ? undefined : onDragEnd}
       >
         {isFolder && <ChevronIcon isOpen={item.isOpen} />}
         {!isFolder && <span className="w-4" />}
@@ -217,6 +218,7 @@ const FileTreeItem = ({
               onRenameSubmit={onRenameSubmit}
               onRenameCancel={onRenameCancel}
               renameError={renameError}
+              readOnly={readOnly}
             />
           ))}
         </div>
@@ -225,7 +227,7 @@ const FileTreeItem = ({
   );
 };
 
-const SideBar = ({ onClose }) => {
+const SideBar = ({ onClose, readOnly = false }) => {
   const {
     fileStructure,
     createItem,
@@ -444,34 +446,46 @@ const SideBar = ({ onClose }) => {
   return (
     <div 
       ref={sidebarRef}
-      className="w-full bg-gradient-to-b from-[#1e1e2e] to-[#181825] border-r border-[#313244] flex flex-col h-full overflow-hidden"
-      onDragOver={handleSidebarDragOver}
-      onDrop={handleSidebarDrop}
+      className={`w-full bg-gradient-to-b from-[#1e1e2e] to-[#181825] border-r flex flex-col h-full overflow-hidden ${readOnly ? 'border-indigo-500/20' : 'border-[#313244]'}`}
+      onDragOver={readOnly ? undefined : handleSidebarDragOver}
+      onDrop={readOnly ? undefined : handleSidebarDrop}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2.5 border-b border-[#313244] bg-[#181825]/50">
-        <span className="text-xs font-semibold text-[#89b4fa] uppercase tracking-wider">Explorer</span>
+      <div className={`flex items-center justify-between px-3 py-2.5 border-b bg-[#181825]/50 ${readOnly ? 'border-indigo-500/20' : 'border-[#313244]'}`}>
+        <span className={`text-xs font-semibold uppercase tracking-wider flex items-center gap-2 ${readOnly ? 'text-indigo-400' : 'text-[#89b4fa]'}`}>
+          {readOnly && (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+          )}
+          {readOnly ? "Teacher's Files" : 'Explorer'}
+        </span>
         <div className="flex items-center gap-1">
-          <button
-            onClick={() => handleCreate('file', getParentForCreate())}
-            className="p-1.5 hover:bg-[#313244] rounded-md text-[#6c7086] hover:text-[#cdd6f4] transition-all duration-150"
-            title="New File"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M9.5 1.1l3.4 3.4.1.5v9.5l-.5.5h-9l-.5-.5v-13l.5-.5h6l.5.1zM9 2H4v12h8V6H9.5L9 5.5V2zm1 0v3h3l-3-3z"/>
-              <path d="M8 7v2H6v1h2v2h1V10h2V9H9V7z"/>
-            </svg>
-          </button>
-          <button
-            onClick={() => handleCreate('folder', getParentForCreate())}
-            className="p-1.5 hover:bg-[#313244] rounded-md text-[#6c7086] hover:text-[#cdd6f4] transition-all duration-150"
-            title="New Folder"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M14.5 3H7.71l-1-1H1.5l-.5.5v11l.5.5h13l.5-.5v-10l-.5-.5zm-.51 8.49V13H2V5h12v6.49z"/>
-              <path d="M8 6v2H6v1h2v2h1V9h2V8H9V6z"/>
-            </svg>
-          </button>
+          {!readOnly && (
+            <>
+              <button
+                onClick={() => handleCreate('file', getParentForCreate())}
+                className="p-1.5 hover:bg-[#313244] rounded-md text-[#6c7086] hover:text-[#cdd6f4] transition-all duration-150"
+                title="New File"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M9.5 1.1l3.4 3.4.1.5v9.5l-.5.5h-9l-.5-.5v-13l.5-.5h6l.5.1zM9 2H4v12h8V6H9.5L9 5.5V2zm1 0v3h3l-3-3z"/>
+                  <path d="M8 7v2H6v1h2v2h1V10h2V9H9V7z"/>
+                </svg>
+              </button>
+              <button
+                onClick={() => handleCreate('folder', getParentForCreate())}
+                className="p-1.5 hover:bg-[#313244] rounded-md text-[#6c7086] hover:text-[#cdd6f4] transition-all duration-150"
+                title="New Folder"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M14.5 3H7.71l-1-1H1.5l-.5.5v11l.5.5h13l.5-.5v-10l-.5-.5zm-.51 8.49V13H2V5h12v6.49z"/>
+                  <path d="M8 6v2H6v1h2v2h1V9h2V8H9V6z"/>
+                </svg>
+              </button>
+            </>
+          )}
           <button
             onClick={collapseAll}
             className="p-1.5 hover:bg-[#313244] rounded-md text-[#6c7086] hover:text-[#cdd6f4] transition-all duration-150"
@@ -506,19 +520,20 @@ const SideBar = ({ onClose }) => {
             onSelect={handleSelect}
             onToggle={handleToggle}
             selectedId={selectedId}
-            onContextMenu={handleContextMenu}
-            onDragStart={handleDragStart}
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
-            onDragEnd={handleDragEnd}
-            draggedItem={draggedItem}
-            dropTarget={dropTarget}
-            renamingId={renamingId}
+            onContextMenu={readOnly ? undefined : handleContextMenu}
+            onDragStart={readOnly ? undefined : handleDragStart}
+            onDragOver={readOnly ? undefined : handleDragOver}
+            onDrop={readOnly ? undefined : handleDrop}
+            onDragEnd={readOnly ? undefined : handleDragEnd}
+            draggedItem={readOnly ? null : draggedItem}
+            dropTarget={readOnly ? null : dropTarget}
+            renamingId={readOnly ? null : renamingId}
             renameValue={renameValue}
             onRenameChange={(value) => { setRenameValue(value); setRenameError(''); }}
             onRenameSubmit={handleRenameSubmit}
             onRenameCancel={handleRenameCancel}
             renameError={renameError}
+            readOnly={readOnly}
           />
         ))}
         
@@ -530,8 +545,8 @@ const SideBar = ({ onClose }) => {
         )}
       </div>
 
-      {/* Context Menu */}
-      {contextMenu && (
+      {/* Context Menu - Only show in non-readOnly mode */}
+      {contextMenu && !readOnly && (
         <div
           className="context-menu fixed bg-[#1e1e2e] border border-[#313244] rounded-lg shadow-2xl py-1.5 z-50 min-w-[180px] backdrop-blur-sm"
           style={{ left: contextMenu.x, top: contextMenu.y }}

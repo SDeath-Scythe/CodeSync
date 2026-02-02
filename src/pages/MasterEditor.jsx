@@ -56,6 +56,7 @@ function MasterEditor() {
         
         const [showSidebar, setShowSidebar] = useState(true);
         const [showClassroom, setShowClassroom] = useState(true);
+        const [showCursors, setShowCursors] = useState(true); // Toggle remote cursor visibility
         const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
         const [classroomCollapsed, setClassroomCollapsed] = useState(false);
         const [fullscreenMode, setFullscreenMode] = useState(null); // null, 'code', or 'classroom'
@@ -92,6 +93,10 @@ function MasterEditor() {
 
         const toggleFullscreen = useCallback((mode) => {
                 setFullscreenMode(prev => prev === mode ? null : mode);
+        }, []);
+
+        const toggleCursors = useCallback(() => {
+                setShowCursors(prev => !prev);
         }, []);
 
         // Determine what to show based on fullscreen mode
@@ -134,6 +139,8 @@ function MasterEditor() {
                                                 <CodeEditor 
                                                         isFullscreen={fullscreenMode === 'code'}
                                                         onToggleFullscreen={() => toggleFullscreen('code')}
+                                                        showCursors={showCursors}
+                                                        onToggleCursors={toggleCursors}
                                                 />
                                                 
                                                 {/* Explorer restore button - positioned on the left edge, vertically centered */}
