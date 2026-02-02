@@ -1,578 +1,666 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import {
-        Files,
-        Search,
-        GitGraph,
-        Users,
-        Settings,
-        ChevronDown,
-        FilePlus,
-        FolderPlus,
-        Trash2,
-        Edit2,
-        X,
-        CornerDownRight,
-        MinusSquare // Icon for Collapse All
-} from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { useFileSystem } from '../context/FileSystemContext';
+import { getFileIconPath, getFolderIconPath } from '../utils/fileIcons';
 
-// --- HELPER FUNCTIONS ---
-
-const getMaterialIcon = (name, type, isOpen) => {
-        const baseUrl = 'https://raw.githubusercontent.com/PKief/vscode-material-icon-theme/main/icons';
-        const lowerName = name.toLowerCase();
-
-        // 1. Folders
-        if (type === 'folder') {
-                let folderName = 'folder';
-                const folderMappings = {
-                        src: 'src', dist: 'dist', build: 'dist', out: 'dist', public: 'public',
-                        app: 'app', components: 'components', pages: 'views', views: 'views',
-                        screens: 'views', layouts: 'layout', assets: 'assets', images: 'images',
-                        img: 'images', icons: 'images', styles: 'css', css: 'css', sass: 'sass',
-                        scss: 'sass', fonts: 'fonts', utils: 'utils', helpers: 'utils', lib: 'lib',
-                        hooks: 'hook', api: 'api', services: 'lib', controllers: 'controller',
-                        models: 'model', routes: 'routes', routers: 'routes', middleware: 'middleware',
-                        middlewares: 'middleware', config: 'config', configuration: 'config',
-                        settings: 'config', tests: 'test', __tests__: 'test', specs: 'test',
-                        db: 'database', database: 'database', prisma: 'prisma', graphql: 'graphql',
-                        types: 'typescript', interfaces: 'typescript', store: 'redux', redux: 'redux',
-                        context: 'react', contexts: 'react', server: 'server', functions: 'functions',
-                        node_modules: 'node', git: 'git', github: 'github', vscode: 'vscode',
-                        include: 'include', plugin: 'plugin', plugins: 'plugin', auth: 'auth',
-                        authentication: 'auth', security: 'security', temp: 'temp', tmp: 'temp',
-                        constants: 'constant', global: 'global', client: 'client', base: 'base',
-                        environment: 'environment', env: 'environment'
-                };
-
-                if (folderMappings[lowerName]) folderName = `folder-${folderMappings[lowerName]}`;
-                if (isOpen) folderName += '-open';
-                return `${baseUrl}/${folderName}.svg`;
-        }
-
-        // 2. Files
-        const fileMappings = {
-                'package.json': 'nodejs', 'package-lock.json': 'nodejs', 'yarn.lock': 'yarn',
-                'tsconfig.json': 'tsconfig', 'jsconfig.json': 'jsconfig', '.gitignore': 'git',
-                '.env': 'tune', 'dockerfile': 'docker', 'readme.md': 'readme',
-                'next.config.js': 'next', 'vite.config.js': 'vite', 'tailwind.config.js': 'tailwindcss'
-        };
-        if (fileMappings[lowerName]) return `${baseUrl}/${fileMappings[lowerName]}.svg`;
-
-        const ext = lowerName.split('.').pop();
-        const extensionMappings = {
-                js: 'javascript', jsx: 'react', ts: 'typescript', tsx: 'react_ts',
-                css: 'css', html: 'html', json: 'json', md: 'markdown', py: 'python',
-                java: 'java', cpp: 'cpp', go: 'go', php: 'php', sql: 'sql', svg: 'svg',
-                png: 'image', jpg: 'image', ico: 'favicon', txt: 'document', pdf: 'pdf',
-                zip: 'zip', '7z': 'zip'
-        };
-        if (extensionMappings[ext]) return `${baseUrl}/${extensionMappings[ext]}.svg`;
-
-        return `${baseUrl}/file.svg`;
-};
-
-// --- SUB-COMPONENTS ---
-
-const FileTreeItem = ({
-        item,
-        depth = 0,
-        selectedId,
-        onSelect,
-        onToggle,
-        onDragStart,
-        onDragOver,
-        onDrop,
-        onContextMenu
-}) => {
-        const paddingLeft = `${depth * 12 + 12}px`;
-        const iconUrl = getMaterialIcon(item.name, item.type, item.isOpen);
-        const isSelected = selectedId === item.id;
-
-        // Clean text color logic (Git status removed)
-        const textColor = isSelected ? 'text-white' : 'text-zinc-400';
-
-        const handleImageError = (e) => {
-                e.target.onerror = null;
-                const baseUrl = 'https://raw.githubusercontent.com/PKief/vscode-material-icon-theme/main/icons';
-                e.target.src = item.type === 'folder' ? `${baseUrl}/folder${item.isOpen ? '-open' : ''}.svg` : `${baseUrl}/file.svg`;
-        };
-
-        return (
-                <div>
-                        <div
-                                draggable
-                                onDragStart={(e) => onDragStart(e, item)}
-                                onDragOver={(e) => onDragOver(e, item)}
-                                onDrop={(e) => onDrop(e, item)}
-                                onContextMenu={(e) => onContextMenu(e, item)}
-                                className={`
-          flex items-center gap-1.5 py-1 pr-2 cursor-pointer select-none text-sm group relative border border-transparent
-          ${isSelected ? 'bg-indigo-600/20 border-indigo-500/30' : 'hover:bg-indigo-600/10 hover:border-indigo-500/20'}
-          ${textColor}
-        `}
-                                style={{ paddingLeft }}
-                                onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (item.type === 'folder') onToggle(item.id);
-                                        onSelect(item);
-                                }}
-                        >
-                                {/* Indent Guide */}
-                                <div className="absolute left-0 top-0 bottom-0 w-px bg-transparent group-hover:bg-indigo-500/30" style={{ left: `${depth * 12 + 6}px` }}></div>
-
-                                <span className="w-4 flex justify-center shrink-0">
-                                        {item.type === 'folder' && (
-                                                <ChevronDown
-                                                        className={`w-3.5 h-3.5 transition-transform ${!item.isOpen && '-rotate-90'}`}
-                                                />
-                                        )}
-                                </span>
-                                <img src={iconUrl} alt={item.type} className="w-4 h-4 object-contain" onError={handleImageError} />
-                                <span className="truncate ml-1 font-medium">{item.name}</span>
-                        </div>
-
-                        {item.type === 'folder' && item.isOpen && item.children && (
-                                <div>
-                                        {item.children.map(child => (
-                                                <FileTreeItem
-                                                        key={child.id}
-                                                        item={child}
-                                                        depth={depth + 1}
-                                                        selectedId={selectedId}
-                                                        onSelect={onSelect}
-                                                        onToggle={onToggle}
-                                                        onDragStart={onDragStart}
-                                                        onDragOver={onDragOver}
-                                                        onDrop={onDrop}
-                                                        onContextMenu={onContextMenu}
-                                                />
-                                        ))}
-                                </div>
-                        )}
-                </div>
-        );
-};
-
-const Modal = ({ isOpen, title, message, type, inputValue, onConfirm, onCancel, setInputValue }) => {
-        if (!isOpen) return null;
-        return (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onCancel}>
-                        <div className="bg-zinc-900 border border-indigo-500/20 rounded-xl shadow-2xl w-80 overflow-hidden backdrop-blur-sm" onClick={e => e.stopPropagation()}>
-                                <div className="flex items-center justify-between px-4 py-2 bg-zinc-800/50 border-b border-indigo-500/20">
-                                        <span className="text-xs font-bold text-zinc-300 uppercase">{title}</span>
-                                        <button onClick={onCancel} className="text-zinc-400 hover:text-indigo-300 transition-colors"><X className="w-4 h-4" /></button>
-                                </div>
-                                <div className="p-4">
-                                        <p className="text-sm text-zinc-300 mb-3">{message}</p>
-                                        {type === 'input' && (
-                                                <input
-                                                        autoFocus
-                                                        type="text"
-                                                        value={inputValue}
-                                                        onChange={(e) => setInputValue(e.target.value)}
-                                                        onKeyDown={(e) => e.key === 'Enter' && onConfirm()}
-                                                        className="w-full bg-[#3c3c3c] border border-[#3c3c3c] focus:border-blue-500 text-white text-sm rounded px-2 py-1 outline-none"
-                                                />
-                                        )}
-                                </div>
-                                <div className="flex justify-end gap-2 px-4 py-2 bg-zinc-800/30 border-t border-indigo-500/20">
-                                        <button onClick={onCancel} className="px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-700/50 rounded transition-colors">Cancel</button>
-                                        <button onClick={onConfirm} className="px-3 py-1 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded font-medium transition-colors shadow-lg shadow-indigo-500/20">Confirm</button>
-                                </div>
-                        </div>
-                </div>
-        );
-};
-
-// --- MAIN COMPONENT ---
-
-const Sidebar = ({
-        fileStructure = [
-                {
-                        id: 'folder-1', name: 'src', type: 'folder', isOpen: true,
-                        children: [
-                                {
-                                        id: 'folder-2', name: 'components', type: 'folder', isOpen: true,
-                                        children: [
-                                                { id: 'file-1', name: 'Header.jsx', type: 'file', language: 'react' },
-                                                { id: 'file-2', name: 'Sidebar.jsx', type: 'file', language: 'react' },
-                                        ]
-                                },
-                                { id: 'folder-controllers', name: 'controllers', type: 'folder', isOpen: false, children: [] },
-                                { id: 'folder-services', name: 'services', type: 'folder', isOpen: false, children: [] },
-                                { id: 'file-3', name: 'App.js', type: 'file', language: 'js', active: true },
-                                { id: 'file-4', name: 'index.css', type: 'file', language: 'css' },
-                        ]
-                },
-                {
-                        id: 'folder-3', name: 'public', type: 'folder', isOpen: false,
-                        children: [
-                                { id: 'file-5', name: 'index.html', type: 'file', language: 'html' },
-                                { id: 'file-6', name: 'favicon.ico', type: 'file', language: 'image' },
-                        ]
-                },
-                { id: 'file-7', name: 'package.json', type: 'file', language: 'json' },
-                { id: 'file-8', name: '.env', type: 'file', language: 'env' },
-                { id: 'file-9', name: 'README.md', type: 'file', language: 'markdown' },
-        ],
-        onFileSelect
-}) => {
-        const [activeTab, setActiveTab] = useState('files');
-        const [files, setFiles] = useState(fileStructure);
-        const [selectedId, setSelectedId] = useState(null);
-        const [draggedItem, setDraggedItem] = useState(null);
-        const [contextMenu, setContextMenu] = useState(null);
-
-        const [modal, setModal] = useState({ isOpen: false, type: 'confirm', title: '', message: '', action: null, data: null });
-        const [inputValue, setInputValue] = useState('');
-        const wrapperRef = useRef(null);
-
-        useEffect(() => {
-                const handleClick = () => setContextMenu(null);
-                window.addEventListener('click', handleClick);
-                return () => window.removeEventListener('click', handleClick);
-        }, []);
-
-        const visibleItems = useMemo(() => {
-                const flatten = (items) => {
-                        let result = [];
-                        items.forEach(item => {
-                                result.push(item);
-                                if (item.type === 'folder' && item.isOpen && item.children) {
-                                        result = result.concat(flatten(item.children));
-                                }
-                        });
-                        return result;
-                };
-                return flatten(files);
-        }, [files]);
-
-        useEffect(() => {
-                const handleKeyDown = (e) => {
-                        if (modal.isOpen) return;
-
-                        if (selectedId) {
-                                const currentIndex = visibleItems.findIndex(i => i.id === selectedId);
-
-                                if (e.key === 'ArrowDown') {
-                                        e.preventDefault();
-                                        if (currentIndex < visibleItems.length - 1) {
-                                                const nextItem = visibleItems[currentIndex + 1];
-                                                setSelectedId(nextItem.id);
-                                                if (nextItem.type !== 'folder' && onFileSelect) onFileSelect(nextItem);
-                                        }
-                                } else if (e.key === 'ArrowUp') {
-                                        e.preventDefault();
-                                        if (currentIndex > 0) {
-                                                const prevItem = visibleItems[currentIndex - 1];
-                                                setSelectedId(prevItem.id);
-                                                if (prevItem.type !== 'folder' && onFileSelect) onFileSelect(prevItem);
-                                        }
-                                } else if (e.key === 'ArrowRight') {
-                                        e.preventDefault();
-                                        const item = visibleItems[currentIndex];
-                                        if (item.type === 'folder') {
-                                                if (!item.isOpen) handleToggle(item.id);
-                                                else if (item.children && item.children.length > 0) {
-                                                        setSelectedId(item.children[0].id);
-                                                }
-                                        }
-                                } else if (e.key === 'ArrowLeft') {
-                                        e.preventDefault();
-                                        const item = visibleItems[currentIndex];
-                                        if (item.type === 'folder' && item.isOpen) {
-                                                handleToggle(item.id);
-                                        } else {
-                                                const parent = findParentFolder(files, item.id);
-                                                if (parent) setSelectedId(parent.id);
-                                        }
-                                } else if (e.key === 'Enter') {
-                                        const item = visibleItems[currentIndex];
-                                        if (item.type === 'folder') handleToggle(item.id);
-                                        else if (onFileSelect) onFileSelect(item);
-                                }
-                        }
-
-                        if (selectedId) {
-                                if (e.key === 'F2') {
-                                        const item = findItemById(files, selectedId);
-                                        if (item) handleRenameClick(item.id, item.name);
-                                }
-                                if (e.key === 'Delete') handleDeleteClick(selectedId);
-                        }
-                };
-
-                window.addEventListener('keydown', handleKeyDown);
-                return () => window.removeEventListener('keydown', handleKeyDown);
-        }, [selectedId, files, visibleItems, modal.isOpen]);
-
-        const handleCreateClick = (type, parentId = null) => {
-                setContextMenu(null);
-                setInputValue('');
-                setModal({
-                        isOpen: true, type: 'input', title: `New ${type}`,
-                        message: parentId ? `Create ${type} inside folder?` : `Enter ${type} name:`,
-                        action: 'create', data: { type, parentId }
-                });
-        };
-
-        const handleCollapseAll = () => {
-                const collapseRecursive = (items) => {
-                        return items.map(item => {
-                                if (item.type === 'folder') {
-                                        return { ...item, isOpen: false, children: collapseRecursive(item.children || []) };
-                                }
-                                return item;
-                        });
-                };
-                setFiles(collapseRecursive(files));
-        };
-
-        const handleDeleteClick = (itemId) => {
-                setContextMenu(null);
-                setModal({
-                        isOpen: true, type: 'confirm', title: 'Delete Item',
-                        message: 'Are you sure you want to delete this? This action cannot be undone.',
-                        action: 'delete', data: { itemId }
-                });
-        };
-
-        const handleRenameClick = (itemId, currentName) => {
-                setContextMenu(null);
-                setInputValue(currentName);
-                setModal({
-                        isOpen: true, type: 'input', title: 'Rename Item', message: 'Enter new name:',
-                        action: 'rename', data: { itemId }
-                });
-        };
-
-        const handleModalConfirm = () => {
-                if (!modal.action) return;
-                if (modal.action === 'create') handleCreateConfirm(modal.data.type, modal.data.parentId);
-                else if (modal.action === 'delete') handleDeleteConfirm(modal.data.itemId);
-                else if (modal.action === 'rename') handleRenameConfirm(modal.data.itemId);
-                else if (modal.action === 'move') {
-                        const { draggedId, destinationFolder, itemToMove } = modal.data;
-                        executeMove(draggedId, destinationFolder, itemToMove);
-                        setModal({ ...modal, isOpen: false });
-                }
-        };
-
-        const handleCreateConfirm = (type, parentId) => {
-                if (!inputValue.trim()) return;
-                const newItem = {
-                        id: `${type}-${Date.now()}`, name: inputValue, type: type, isOpen: false, children: type === 'folder' ? [] : undefined,
-                };
-                const addRecursive = (items) => {
-                        if (!parentId) return [...items, newItem].sort((a, b) => a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'folder' ? -1 : 1);
-                        return items.map(item => {
-                                if (item.id === parentId) {
-                                        return {
-                                                ...item, isOpen: true,
-                                                children: [...(item.children || []), newItem].sort((a, b) => a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'folder' ? -1 : 1)
-                                        };
-                                }
-                                if (item.children) return { ...item, children: addRecursive(item.children) };
-                                return item;
-                        });
-                };
-                setFiles(addRecursive(files));
-                setModal({ ...modal, isOpen: false });
-        };
-
-        const handleDeleteConfirm = (itemId) => {
-                const deleteRecursive = (items) => items.filter(item => item.id !== itemId).map(item => {
-                        if (item.children) return { ...item, children: deleteRecursive(item.children) };
-                        return item;
-                });
-                setFiles(deleteRecursive(files));
-                setModal({ ...modal, isOpen: false });
-                if (selectedId === itemId) setSelectedId(null);
-        };
-
-        const handleRenameConfirm = (itemId) => {
-                if (!inputValue.trim()) return;
-                const renameRecursive = (items) => items.map(item => {
-                        if (item.id === itemId) return { ...item, name: inputValue };
-                        if (item.children) return { ...item, children: renameRecursive(item.children) };
-                        return item;
-                });
-                setFiles(renameRecursive(files));
-                setModal({ ...modal, isOpen: false });
-        };
-
-        const handleDragStart = (e, item) => {
-                e.stopPropagation();
-                setDraggedItem(item);
-                e.dataTransfer.setData("text/plain", item.id);
-                e.dataTransfer.effectAllowed = "move";
-        };
-
-        const handleDragOver = (e, targetItem) => {
-                e.preventDefault(); e.stopPropagation();
-                if (draggedItem && draggedItem.id !== targetItem.id) e.dataTransfer.dropEffect = "move";
-        };
-
-        const handleDrop = (e, targetItem) => {
-                e.preventDefault(); e.stopPropagation();
-                const draggedId = e.dataTransfer.getData("text/plain");
-                if (!draggedId || draggedId === targetItem.id) return;
-                const itemToMove = findItemById(files, draggedId);
-                if (!itemToMove) return;
-
-                let destinationFolder = null;
-                let destName = 'Root';
-                const findParent = (items, childId) => {
-                        for (const item of items) {
-                                if (item.children && item.children.some(c => c.id === childId)) return item;
-                                if (item.children) { const found = findParent(item.children, childId); if (found) return found; }
-                        }
-                        return null;
-                };
-
-                if (targetItem.type === 'folder') { destinationFolder = targetItem; destName = targetItem.name; }
-                else { destinationFolder = findParent(files, targetItem.id); destName = destinationFolder ? destinationFolder.name : 'Root'; }
-
-                const isDescendant = (parentId, childId) => {
-                        const parent = findItemById(files, parentId);
-                        if (!parent || !parent.children) return false;
-                        const checkRecursive = (items) => {
-                                for (const item of items) {
-                                        if (item.id === childId) return true;
-                                        if (item.children && checkRecursive(item.children)) return true;
-                                }
-                                return false;
-                        };
-                        return checkRecursive(parent.children);
-                };
-
-                if (itemToMove.type === 'folder' && destinationFolder) {
-                        if (itemToMove.id === destinationFolder.id || isDescendant(itemToMove.id, destinationFolder.id)) {
-                                alert("Cannot move folder into itself"); return;
-                        }
-                }
-
-                setModal({
-                        isOpen: true, type: 'confirm', title: 'Move Item',
-                        message: `Move '${itemToMove.name}' to '${destName}'?`,
-                        action: 'move', data: { draggedId, destinationFolder, itemToMove }
-                });
-                setDraggedItem(null);
-        };
-
-        const executeMove = (draggedId, destinationFolder, itemToMove) => {
-                const removeRecursive = (items) => items.filter(item => item.id !== draggedId).map(item => {
-                        if (item.children) return { ...item, children: removeRecursive(item.children) };
-                        return item;
-                });
-                const newStructure = removeRecursive(files);
-
-                if (destinationFolder) {
-                        const addRecursive = (items) => items.map(item => {
-                                if (item.id === destinationFolder.id) {
-                                        return { ...item, isOpen: true, children: [...(item.children || []), itemToMove].sort((a, b) => a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'folder' ? -1 : 1) };
-                                }
-                                if (item.children) return { ...item, children: addRecursive(item.children) };
-                                return item;
-                        });
-                        setFiles(addRecursive(newStructure));
-                } else {
-                        setFiles([...newStructure, itemToMove]);
-                }
-        };
-
-        const findItemById = (items, id) => {
-                for (const item of items) {
-                        if (item.id === id) return item;
-                        if (item.children) { const found = findItemById(item.children, id); if (found) return found; }
-                }
-                return null;
-        };
-
-        const findParentFolder = (items, childId) => {
-                for (const item of items) {
-                        if (item.children && item.children.some(c => c.id === childId)) return item;
-                        if (item.children) {
-                                const found = findParentFolder(item.children, childId);
-                                if (found) return found;
-                        }
-                }
-                return null;
-        };
-
-        const handleToggle = (folderId) => {
-                const toggleRecursive = (items) => items.map(item => {
-                        if (item.id === folderId) return { ...item, isOpen: !item.isOpen };
-                        if (item.children) return { ...item, children: toggleRecursive(item.children) };
-                        return item;
-                });
-                setFiles(toggleRecursive(files));
-        };
-
-        const handleSelect = (item) => {
-                setSelectedId(item.id);
-                if (onFileSelect) onFileSelect(item);
-        };
-
-        const handleContextMenu = (e, item) => {
-                e.preventDefault();
-                setContextMenu({ x: e.clientX, y: e.clientY, item });
-        };
-
-        return (
-                <div className="flex h-full bg-zinc-900/80 border-r border-indigo-500/20 backdrop-blur-sm" ref={wrapperRef} onClick={() => setContextMenu(null)}>
-                        <div className="w-12 flex flex-col items-center py-3 bg-linear-to-b from-zinc-800 to-zinc-900 border-r border-indigo-500/20 justify-between z-10">
-                                <div className="flex flex-col gap-6 w-full">
-                                        <ActivityIcon icon={Files} isActive={activeTab === 'files'} onClick={() => setActiveTab('files')} />
-                                        <ActivityIcon icon={Search} isActive={activeTab === 'search'} onClick={() => setActiveTab('search')} />
-                                        <ActivityIcon icon={GitGraph} isActive={activeTab === 'git'} onClick={() => setActiveTab('git')} />
-                                        <ActivityIcon icon={Users} isActive={activeTab === 'users'} onClick={() => setActiveTab('users')} badge={3} />
-                                </div>
-                                <div className="mb-2"><ActivityIcon icon={Settings} /></div>
-                        </div>
-
-                        <div className={`${activeTab === 'files' ? 'block' : 'hidden'} w-60 flex flex-col bg-zinc-900/80 backdrop-blur-sm relative`}>
-                                <div className="h-9 px-4 flex items-center text-xs font-bold text-zinc-400 tracking-wider">EXPLORER</div>
-
-                                <div className="group px-2 py-1 flex items-center justify-between font-bold text-xs text-indigo-400 cursor-pointer bg-indigo-600/10 hover:bg-indigo-600/20 transition-colors border border-transparent hover:border-indigo-500/30">
-                                        <div className="flex items-center"><ChevronDown className="w-3.5 h-3.5 mr-1" /> CODESYNC-PROJECT</div>
-                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <button onClick={(e) => { e.stopPropagation(); handleCreateClick('file'); }} className="p-1 hover:bg-indigo-600/20 rounded text-zinc-400 hover:text-indigo-300 border border-transparent hover:border-indigo-500/30 transition-all" title="New File"><FilePlus className="w-3.5 h-3.5" /></button>
-                                                <button onClick={(e) => { e.stopPropagation(); handleCreateClick('folder'); }} className="p-1 hover:bg-indigo-600/20 rounded text-zinc-400 hover:text-indigo-300 border border-transparent hover:border-indigo-500/30 transition-all" title="New Folder"><FolderPlus className="w-3.5 h-3.5" /></button>
-                                                <button onClick={(e) => { e.stopPropagation(); handleCollapseAll(); }} className="p-1 hover:bg-indigo-600/20 rounded text-zinc-400 hover:text-indigo-300 border border-transparent hover:border-indigo-500/30 transition-all" title="Collapse All"><MinusSquare className="w-3.5 h-3.5" /></button>
-                                        </div>
-                                </div>
-
-                                <div className="flex-1 overflow-y-auto py-1 outline-none" tabIndex={0}>
-                                        {files.map(item => (
-                                                <FileTreeItem key={item.id} item={item} selectedId={selectedId} onSelect={handleSelect} onToggle={handleToggle} onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop} onContextMenu={handleContextMenu} />
-                                        ))}
-                                </div>
-
-                                {contextMenu && (
-                                        <div className="fixed bg-zinc-900 border border-indigo-500/20 shadow-2xl rounded-lg py-1 z-50 w-48 text-sm text-zinc-300 flex flex-col backdrop-blur-sm" style={{ top: contextMenu.y, left: contextMenu.x }} onClick={(e) => e.stopPropagation()}>
-                                                {contextMenu.item.type === 'folder' && (
-                                                        <>
-                                                                <div className="px-3 py-1.5 hover:bg-[#094771] hover:text-white cursor-pointer flex items-center gap-2" onClick={() => handleCreateClick('file', contextMenu.item.id)}><FilePlus className="w-3.5 h-3.5" /> New File</div>
-                                                                <div className="px-3 py-1.5 hover:bg-[#094771] hover:text-white cursor-pointer flex items-center gap-2 border-b border-[#454545]" onClick={() => handleCreateClick('folder', contextMenu.item.id)}><FolderPlus className="w-3.5 h-3.5" /> New Folder</div>
-                                                        </>
-                                                )}
-                                                <div className="px-3 py-1.5 hover:bg-indigo-600/20 hover:text-indigo-300 cursor-pointer flex items-center gap-2 mt-1 transition-colors border border-transparent hover:border-indigo-500/20" onClick={() => handleRenameClick(contextMenu.item.id, contextMenu.item.name)}><Edit2 className="w-3.5 h-3.5" /> Rename <span className="ml-auto text-xs text-zinc-500">F2</span></div>
-                                                <div className="px-3 py-1.5 hover:bg-red-600/20 hover:text-red-300 cursor-pointer flex items-center gap-2 text-red-400 transition-colors border border-transparent hover:border-red-500/20" onClick={() => handleDeleteClick(contextMenu.item.id)}><Trash2 className="w-3.5 h-3.5" /> Delete <span className="ml-auto text-xs opacity-50">Del</span></div>
-                                        </div>
-                                )}
-
-                                <Modal isOpen={modal.isOpen} title={modal.title} message={modal.message} type={modal.type} inputValue={inputValue} onConfirm={handleModalConfirm} onCancel={() => setModal({ ...modal, isOpen: false })} setInputValue={setInputValue} />
-                        </div>
-                </div>
-        );
-};
-
-const ActivityIcon = ({ icon: Icon, isActive, onClick, badge }) => (
-        <div onClick={onClick} className={`relative group w-full flex justify-center py-2 cursor-pointer transition-all ${isActive ? 'border-l-2 border-indigo-500 bg-indigo-600/10' : 'border-l-2 border-transparent opacity-60 hover:opacity-100 hover:bg-indigo-600/5'}`}>
-                <Icon className={`w-6 h-6 ${isActive ? 'text-indigo-400' : 'text-zinc-400'}`} strokeWidth={1.5} />
-                {badge && <span className="absolute top-1 right-2 w-3.5 h-3.5 flex items-center justify-center bg-indigo-600 text-[8px] font-bold text-white rounded-full shadow-lg shadow-indigo-500/50">{badge}</span>}
-        </div>
+// Icons using material-icon-theme
+const FolderIcon = ({ isOpen, name }) => (
+  <img 
+    src={getFolderIconPath(name, isOpen)} 
+    alt="" 
+    width="16" 
+    height="16" 
+    className="flex-shrink-0"
+  />
 );
 
-export default Sidebar;
+const FileIcon = ({ name }) => (
+  <img 
+    src={getFileIconPath(name)} 
+    alt="" 
+    width="16" 
+    height="16" 
+    className="flex-shrink-0"
+  />
+);
+
+const ChevronIcon = ({ isOpen }) => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className={`text-gray-400 transition-transform ${isOpen ? 'rotate-90' : ''}`}>
+    <path d="M6 4l4 4-4 4V4z"/>
+  </svg>
+);
+
+// Modal Component
+const Modal = ({ isOpen, title, children, onClose }) => {
+  if (!isOpen) return null;
+  
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative bg-[#252526] border border-[#3c3c3c] rounded-lg shadow-xl min-w-[300px]">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[#3c3c3c]">
+          <span className="text-sm font-medium text-white">{title}</span>
+          <button onClick={onClose} className="text-gray-400 hover:text-white">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 8.707l3.646 3.647.708-.707L8.707 8l3.647-3.646-.707-.708L8 7.293 4.354 3.646l-.707.708L7.293 8l-3.646 3.646.707.708L8 8.707z"/>
+            </svg>
+          </button>
+        </div>
+        <div className="p-4">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// File Tree Item Component
+const FileTreeItem = ({ 
+  item, 
+  depth = 0, 
+  onSelect, 
+  onToggle, 
+  selectedId, 
+  onContextMenu,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  draggedItem,
+  dropTarget,
+  renamingId,
+  renameValue,
+  onRenameChange,
+  onRenameSubmit,
+  onRenameCancel,
+  renameError
+}) => {
+  const isFolder = item.type === 'folder';
+  const isSelected = selectedId === item.id;
+  const isDragging = draggedItem?.id === item.id;
+  const isDropTarget = dropTarget === item.id;
+  const isRenaming = renamingId === item.id;
+  
+  const renameInputRef = useRef(null);
+  
+  useEffect(() => {
+    if (isRenaming && renameInputRef.current) {
+      renameInputRef.current.focus();
+      // Select filename without extension for files
+      if (!isFolder) {
+        const dotIndex = renameValue.lastIndexOf('.');
+        if (dotIndex > 0) {
+          renameInputRef.current.setSelectionRange(0, dotIndex);
+        } else {
+          renameInputRef.current.select();
+        }
+      } else {
+        renameInputRef.current.select();
+      }
+    }
+  }, [isRenaming, isFolder, renameValue]);
+
+  const handleClick = (e) => {
+    e.stopPropagation();
+    if (isRenaming) return;
+    
+    if (isFolder) {
+      onToggle(item.id);
+    }
+    onSelect(item.id, item);
+  };
+
+  const handleContextMenu = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onContextMenu(e, item);
+  };
+
+  const handleDragStart = (e) => {
+    e.stopPropagation();
+    onDragStart(e, item);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isFolder && draggedItem?.id !== item.id) {
+      onDragOver(e, item);
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isFolder && draggedItem?.id !== item.id) {
+      onDrop(e, item);
+    }
+  };
+
+  const handleRenameKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      onRenameSubmit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      onRenameCancel();
+    }
+  };
+
+  return (
+    <div className={isDragging ? 'opacity-50' : ''}>
+      <div
+        className={`
+          flex items-center gap-1 px-2 py-[2px] cursor-pointer select-none
+          hover:bg-[#2a2d2e] transition-colors
+          ${isSelected ? 'bg-[#094771]' : ''}
+          ${isDropTarget ? 'bg-[#094771]/50 border border-blue-400' : 'border border-transparent'}
+        `}
+        style={{ paddingLeft: `${depth * 12 + 8}px` }}
+        onClick={handleClick}
+        onContextMenu={handleContextMenu}
+        draggable={!isRenaming}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+        onDragEnd={onDragEnd}
+      >
+        {isFolder && <ChevronIcon isOpen={item.isOpen} />}
+        {!isFolder && <span className="w-4" />}
+        
+        {isFolder ? <FolderIcon isOpen={item.isOpen} name={item.name} /> : <FileIcon name={item.name} />}
+        
+        {isRenaming ? (
+          <div className="flex-1 flex flex-col">
+            <input
+              ref={renameInputRef}
+              type="text"
+              value={renameValue}
+              onChange={(e) => onRenameChange(e.target.value)}
+              onKeyDown={handleRenameKeyDown}
+              onBlur={onRenameSubmit}
+              className={`w-full bg-[#3c3c3c] text-white text-sm px-1 py-0 outline-none rounded ${renameError ? 'border border-red-500' : 'border border-blue-400'}`}
+              onClick={(e) => e.stopPropagation()}
+            />
+            {renameError && (
+              <span className="text-red-400 text-[10px] mt-0.5">{renameError}</span>
+            )}
+          </div>
+        ) : (
+          <span className="text-sm text-gray-200 truncate">{item.name}</span>
+        )}
+      </div>
+      
+      {isFolder && item.isOpen && item.children && (
+        <div>
+          {item.children.map(child => (
+            <FileTreeItem
+              key={child.id}
+              item={child}
+              depth={depth + 1}
+              onSelect={onSelect}
+              onToggle={onToggle}
+              selectedId={selectedId}
+              onContextMenu={onContextMenu}
+              onDragStart={onDragStart}
+              onDragOver={onDragOver}
+              onDrop={onDrop}
+              onDragEnd={onDragEnd}
+              draggedItem={draggedItem}
+              dropTarget={dropTarget}
+              renamingId={renamingId}
+              renameValue={renameValue}
+              onRenameChange={onRenameChange}
+              onRenameSubmit={onRenameSubmit}
+              onRenameCancel={onRenameCancel}
+              renameError={renameError}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const SideBar = () => {
+  const {
+    fileStructure,
+    createItem,
+    deleteItem,
+    renameItem,
+    moveItem,
+    toggleFolder,
+    collapseAll,
+    openFile,
+    findItemById
+  } = useFileSystem();
+
+  const [selectedId, setSelectedId] = useState(null);
+  const [contextMenu, setContextMenu] = useState(null);
+  const [createModal, setCreateModal] = useState({ isOpen: false, type: null, parentId: null });
+  const [deleteModal, setDeleteModal] = useState({ isOpen: false, item: null });
+  const [draggedItem, setDraggedItem] = useState(null);
+  const [dropTarget, setDropTarget] = useState(null);
+  const [moveConfirmModal, setMoveConfirmModal] = useState({ isOpen: false, item: null, target: null });
+  const [newItemName, setNewItemName] = useState('');
+  const [renamingId, setRenamingId] = useState(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [createError, setCreateError] = useState('');
+  const [renameError, setRenameError] = useState('');
+  const [moveError, setMoveError] = useState('');
+  
+  const sidebarRef = useRef(null);
+
+  // Close context menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (contextMenu && !e.target.closest('.context-menu')) {
+        setContextMenu(null);
+      }
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [contextMenu]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'F2' && selectedId && !renamingId) {
+        e.preventDefault();
+        startRename(selectedId);
+      } else if (e.key === 'Delete' && selectedId && !renamingId) {
+        e.preventDefault();
+        const item = findItemById(fileStructure, selectedId);
+        if (item) {
+          setDeleteModal({ isOpen: true, item });
+        }
+      } else if (e.key === 'Escape' && renamingId) {
+        setRenamingId(null);
+        setRenameValue('');
+      }
+    };
+    
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [selectedId, renamingId, fileStructure, findItemById]);
+
+  const handleSelect = (id, item) => {
+    setSelectedId(id);
+    if (item.type === 'file') {
+      openFile(id);
+    }
+  };
+
+  const handleToggle = (id) => {
+    toggleFolder(id);
+  };
+
+  const handleContextMenu = (e, item) => {
+    e.preventDefault();
+    setSelectedId(item.id);
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      item
+    });
+  };
+
+  const startRename = (id) => {
+    const item = findItemById(fileStructure, id);
+    if (item) {
+      setRenamingId(id);
+      setRenameValue(item.name);
+      setRenameError('');
+      setContextMenu(null);
+    }
+  };
+
+  const handleRenameSubmit = () => {
+    if (renamingId && renameValue.trim()) {
+      const result = renameItem(renamingId, renameValue.trim());
+      if (result?.error) {
+        setRenameError(result.error);
+        return; // Don't close the rename input
+      }
+    }
+    setRenamingId(null);
+    setRenameValue('');
+    setRenameError('');
+  };
+
+  const handleRenameCancel = () => {
+    setRenamingId(null);
+    setRenameValue('');
+    setRenameError('');
+  };
+
+  const handleCreate = (type, parentId = null) => {
+    setCreateModal({ isOpen: true, type, parentId });
+    setNewItemName(type === 'folder' ? 'New Folder' : 'newFile.js');
+    setCreateError('');
+    setContextMenu(null);
+  };
+
+  const handleCreateConfirm = () => {
+    if (newItemName.trim()) {
+      const result = createItem(createModal.type, newItemName.trim(), createModal.parentId);
+      if (result?.error) {
+        setCreateError(result.error);
+        return; // Don't close the modal
+      }
+      if (createModal.type === 'file' && result.id) {
+        openFile(result.id);
+      }
+    }
+    setCreateModal({ isOpen: false, type: null, parentId: null });
+    setNewItemName('');
+    setCreateError('');
+  };
+
+  const handleDeleteConfirm = () => {
+    if (deleteModal.item) {
+      deleteItem(deleteModal.item.id);
+      if (selectedId === deleteModal.item.id) {
+        setSelectedId(null);
+      }
+    }
+    setDeleteModal({ isOpen: false, item: null });
+  };
+
+  // Drag and Drop handlers
+  const handleDragStart = (e, item) => {
+    setDraggedItem(item);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', item.id);
+  };
+
+  const handleDragOver = (e, targetItem) => {
+    if (draggedItem && targetItem.type === 'folder' && draggedItem.id !== targetItem.id) {
+      setDropTarget(targetItem.id);
+    }
+  };
+
+  const handleDrop = (e, targetItem) => {
+    if (draggedItem && targetItem.type === 'folder' && draggedItem.id !== targetItem.id) {
+      // Check if it's already a child of the target
+      const isAlreadyChild = targetItem.children?.some(c => c.id === draggedItem.id);
+      if (!isAlreadyChild) {
+        setMoveConfirmModal({ isOpen: true, item: draggedItem, target: targetItem });
+      }
+    }
+    setDropTarget(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedItem(null);
+    setDropTarget(null);
+  };
+
+  const handleMoveConfirm = () => {
+    if (moveConfirmModal.item && moveConfirmModal.target) {
+      const result = moveItem(moveConfirmModal.item.id, moveConfirmModal.target.id);
+      if (result?.error) {
+        setMoveError(result.error);
+        return; // Don't close the modal
+      }
+    }
+    setMoveConfirmModal({ isOpen: false, item: null, target: null });
+    setMoveError('');
+    setDraggedItem(null);
+  };
+
+  // Drop on sidebar (root level)
+  const handleSidebarDragOver = (e) => {
+    e.preventDefault();
+    if (draggedItem) {
+      setDropTarget('root');
+    }
+  };
+
+  const handleSidebarDrop = (e) => {
+    e.preventDefault();
+    if (draggedItem) {
+      // Check if already at root
+      const isAtRoot = fileStructure.some(item => item.id === draggedItem.id);
+      if (!isAtRoot) {
+        moveItem(draggedItem.id, null); // null means root level
+      }
+    }
+    setDraggedItem(null);
+    setDropTarget(null);
+  };
+
+  // Get parent ID for creating items
+  const getParentForCreate = () => {
+    if (!selectedId) return null;
+    const selectedItem = findItemById(fileStructure, selectedId);
+    if (selectedItem?.type === 'folder') return selectedId;
+    return null;
+  };
+
+  return (
+    <div 
+      ref={sidebarRef}
+      className="w-64 bg-[#252526] border-r border-[#3c3c3c] flex flex-col h-full overflow-hidden"
+      onDragOver={handleSidebarDragOver}
+      onDrop={handleSidebarDrop}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-2 border-b border-[#3c3c3c]">
+        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Explorer</span>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => handleCreate('file', getParentForCreate())}
+            className="p-1 hover:bg-[#3c3c3c] rounded text-gray-400 hover:text-white"
+            title="New File"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M9.5 1.1l3.4 3.4.1.5v9.5l-.5.5h-9l-.5-.5v-13l.5-.5h6l.5.1zM9 2H4v12h8V6H9.5L9 5.5V2zm1 0v3h3l-3-3z"/>
+              <path d="M8 7v2H6v1h2v2h1V10h2V9H9V7z"/>
+            </svg>
+          </button>
+          <button
+            onClick={() => handleCreate('folder', getParentForCreate())}
+            className="p-1 hover:bg-[#3c3c3c] rounded text-gray-400 hover:text-white"
+            title="New Folder"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M14.5 3H7.71l-1-1H1.5l-.5.5v11l.5.5h13l.5-.5v-10l-.5-.5zm-.51 8.49V13H2V5h12v6.49z"/>
+              <path d="M8 6v2H6v1h2v2h1V9h2V8H9V6z"/>
+            </svg>
+          </button>
+          <button
+            onClick={collapseAll}
+            className="p-1 hover:bg-[#3c3c3c] rounded text-gray-400 hover:text-white"
+            title="Collapse All"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M9 9H4v1h5V9z"/>
+              <path d="M14.5 3H7.71l-1-1H1.5l-.5.5v11l.5.5h13l.5-.5v-10l-.5-.5zm-.51 8.49V13H2V5h12v6.49z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* File Tree */}
+      <div className={`flex-1 overflow-auto py-1 ${dropTarget === 'root' ? 'bg-[#094771]/30' : ''}`}>
+        {fileStructure.map(item => (
+          <FileTreeItem
+            key={item.id}
+            item={item}
+            depth={0}
+            onSelect={handleSelect}
+            onToggle={handleToggle}
+            selectedId={selectedId}
+            onContextMenu={handleContextMenu}
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+            onDragEnd={handleDragEnd}
+            draggedItem={draggedItem}
+            dropTarget={dropTarget}
+            renamingId={renamingId}
+            renameValue={renameValue}
+            onRenameChange={(value) => { setRenameValue(value); setRenameError(''); }}
+            onRenameSubmit={handleRenameSubmit}
+            onRenameCancel={handleRenameCancel}
+            renameError={renameError}
+          />
+        ))}
+        
+        {fileStructure.length === 0 && (
+          <div className="px-4 py-8 text-center text-gray-500 text-sm">
+            <p>No files yet</p>
+            <p className="mt-2 text-xs">Right-click to create a file or folder</p>
+          </div>
+        )}
+      </div>
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <div
+          className="context-menu fixed bg-[#252526] border border-[#3c3c3c] rounded shadow-xl py-1 z-50 min-w-[160px]"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          {contextMenu.item.type === 'folder' && (
+            <>
+              <button
+                onClick={() => handleCreate('file', contextMenu.item.id)}
+                className="w-full px-3 py-1.5 text-left text-sm text-gray-200 hover:bg-[#094771] flex items-center gap-2"
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M9.5 1.1l3.4 3.4.1.5v9.5l-.5.5h-9l-.5-.5v-13l.5-.5h6l.5.1zM9 2H4v12h8V6H9.5L9 5.5V2z"/>
+                </svg>
+                New File
+              </button>
+              <button
+                onClick={() => handleCreate('folder', contextMenu.item.id)}
+                className="w-full px-3 py-1.5 text-left text-sm text-gray-200 hover:bg-[#094771] flex items-center gap-2"
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M14.5 3H7.71l-1-1H1.5l-.5.5v11l.5.5h13l.5-.5v-10l-.5-.5z"/>
+                </svg>
+                New Folder
+              </button>
+              <div className="border-t border-[#3c3c3c] my-1" />
+            </>
+          )}
+          
+          <button
+            onClick={() => startRename(contextMenu.item.id)}
+            className="w-full px-3 py-1.5 text-left text-sm text-gray-200 hover:bg-[#094771] flex items-center gap-2"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M13.23 1h-1.46L3.52 9.25l-.16.22L1 13.59 2.41 15l4.12-2.36.22-.16L15 4.23V2.77L13.23 1zM2.41 13.59l1.51-3 1.45 1.45-2.96 1.55zm3.83-2.06L4.47 9.76l8-8 1.77 1.77-8 8z"/>
+            </svg>
+            Rename
+            <span className="ml-auto text-xs text-gray-500">F2</span>
+          </button>
+          
+          <button
+            onClick={() => {
+              setDeleteModal({ isOpen: true, item: contextMenu.item });
+              setContextMenu(null);
+            }}
+            className="w-full px-3 py-1.5 text-left text-sm text-red-400 hover:bg-[#094771] flex items-center gap-2"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M10 3h3v1h-1v9l-1 1H4l-1-1V4H2V3h3V2a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1zM9 2H6v1h3V2zM4 13h7V4H4v9zm2-8H5v7h1V5zm1 0h1v7H7V5zm2 0h1v7H9V5z"/>
+            </svg>
+            Delete
+            <span className="ml-auto text-xs text-gray-500">Del</span>
+          </button>
+        </div>
+      )}
+
+      {/* Create Modal */}
+      <Modal
+        isOpen={createModal.isOpen}
+        title={`Create New ${createModal.type === 'folder' ? 'Folder' : 'File'}`}
+        onClose={() => { setCreateModal({ isOpen: false, type: null, parentId: null }); setCreateError(''); }}
+      >
+        <input
+          type="text"
+          value={newItemName}
+          onChange={(e) => { setNewItemName(e.target.value); setCreateError(''); }}
+          onKeyDown={(e) => e.key === 'Enter' && handleCreateConfirm()}
+          placeholder={createModal.type === 'folder' ? 'Folder name' : 'File name'}
+          className={`w-full bg-[#3c3c3c] text-white text-sm px-3 py-2 border outline-none rounded ${createError ? 'border-red-500' : 'border-[#3c3c3c] focus:border-blue-500'}`}
+          autoFocus
+        />
+        {createError && (
+          <p className="text-red-400 text-xs mt-2">{createError}</p>
+        )}
+        <div className="flex justify-end gap-2 mt-4">
+          <button
+            onClick={() => { setCreateModal({ isOpen: false, type: null, parentId: null }); setCreateError(''); }}
+            className="px-3 py-1.5 text-sm text-gray-300 hover:text-white hover:bg-[#3c3c3c] rounded"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleCreateConfirm}
+            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            Create
+          </button>
+        </div>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={deleteModal.isOpen}
+        title="Confirm Delete"
+        onClose={() => setDeleteModal({ isOpen: false, item: null })}
+      >
+        <p className="text-sm text-gray-300">
+          Are you sure you want to delete "{deleteModal.item?.name}"?
+          {deleteModal.item?.type === 'folder' && ' This will also delete all contents inside.'}
+        </p>
+        <div className="flex justify-end gap-2 mt-4">
+          <button
+            onClick={() => setDeleteModal({ isOpen: false, item: null })}
+            className="px-3 py-1.5 text-sm text-gray-300 hover:text-white hover:bg-[#3c3c3c] rounded"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleDeleteConfirm}
+            className="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+          >
+            Delete
+          </button>
+        </div>
+      </Modal>
+
+      {/* Move Confirmation Modal */}
+      <Modal
+        isOpen={moveConfirmModal.isOpen}
+        title="Move Item"
+        onClose={() => { setMoveConfirmModal({ isOpen: false, item: null, target: null }); setMoveError(''); }}
+      >
+        <p className="text-sm text-gray-300">
+          Move "{moveConfirmModal.item?.name}" into "{moveConfirmModal.target?.name}"?
+        </p>
+        {moveError && (
+          <p className="text-red-400 text-xs mt-2">{moveError}</p>
+        )}
+        <div className="flex justify-end gap-2 mt-4">
+          <button
+            onClick={() => { setMoveConfirmModal({ isOpen: false, item: null, target: null }); setMoveError(''); }}
+            className="px-3 py-1.5 text-sm text-gray-300 hover:text-white hover:bg-[#3c3c3c] rounded"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleMoveConfirm}
+            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            Move
+          </button>
+        </div>
+      </Modal>
+    </div>
+  );
+};
+
+export default SideBar;

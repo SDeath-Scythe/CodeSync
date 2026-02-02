@@ -4,11 +4,13 @@ import SideBar from '../components/SideBar'
 import CodeEditor from '../components/CodeEdtor'
 import ClassroomPanel from '../components/ClassroomPanel'
 import StatusBar from '../components/StatusBar'
+import { FileSystemProvider } from '../context/FileSystemContext'
 
 function MasterEditor() {
         const [showClassroom, setShowClassroom] = useState(true);
 
         return (
+                <FileSystemProvider>
                 <div className="flex flex-col h-screen w-screen bg-gradient-to-br from-zinc-950 via-zinc-900 to-indigo-950 text-white overflow-hidden font-sans">
                         
                         {/* TopBar */}
@@ -52,6 +54,7 @@ function MasterEditor() {
                                 <StatusBar />
                         </div>
                 </div>
+                </FileSystemProvider>
         )
 }
 

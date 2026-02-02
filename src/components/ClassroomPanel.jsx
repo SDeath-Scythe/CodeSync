@@ -46,7 +46,7 @@ const VideoTile = ({ user }) => (
                 )}
 
                 {user.isSpeaking && (
-                        <div className="absolute inset-0 border-2 border-indigo-500 rounded-xl animate-pulse pointer-events-none" />
+                        <div className="absolute inset-0 border-2 border-indigo-500 rounded-xl pointer-events-none" />
                 )}
 
                 <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-sm px-2.5 py-1 rounded-lg text-[11px] font-medium text-white flex items-center gap-2">
