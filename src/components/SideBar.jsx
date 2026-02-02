@@ -28,7 +28,7 @@ const FileIcon = ({ name }) => (
 );
 
 const ChevronIcon = ({ isOpen }) => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className={`text-gray-400 transition-transform ${isOpen ? 'rotate-90' : ''}`}>
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className={`text-[#6c7086] transition-transform duration-150 ${isOpen ? 'rotate-90' : ''}`}>
     <path d="M6 4l4 4-4 4V4z"/>
   </svg>
 );
@@ -39,11 +39,11 @@ const Modal = ({ isOpen, title, children, onClose }) => {
   
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative bg-[#252526] border border-[#3c3c3c] rounded-lg shadow-xl min-w-[300px]">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[#3c3c3c]">
-          <span className="text-sm font-medium text-white">{title}</span>
-          <button onClick={onClose} className="text-gray-400 hover:text-white">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-[#1e1e2e] border border-[#313244] rounded-xl shadow-2xl min-w-[320px]">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[#313244] bg-[#181825] rounded-t-xl">
+          <span className="text-sm font-medium text-[#cdd6f4]">{title}</span>
+          <button onClick={onClose} className="text-[#6c7086] hover:text-[#cdd6f4] transition-colors">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
               <path d="M8 8.707l3.646 3.647.708-.707L8.707 8l3.647-3.646-.707-.708L8 7.293 4.354 3.646l-.707.708L7.293 8l-3.646 3.646.707.708L8 8.707z"/>
             </svg>
@@ -154,10 +154,10 @@ const FileTreeItem = ({
     <div className={isDragging ? 'opacity-50' : ''}>
       <div
         className={`
-          flex items-center gap-1 px-2 py-[2px] cursor-pointer select-none
-          hover:bg-[#2a2d2e] transition-colors
-          ${isSelected ? 'bg-[#094771]' : ''}
-          ${isDropTarget ? 'bg-[#094771]/50 border border-blue-400' : 'border border-transparent'}
+          flex items-center gap-1.5 px-2 py-[3px] cursor-pointer select-none
+          hover:bg-[#313244] transition-all duration-150
+          ${isSelected ? 'bg-[#45475a] text-[#cdd6f4]' : 'text-[#a6adc8]'}
+          ${isDropTarget ? 'bg-[#89b4fa]/20 border border-[#89b4fa]/50' : 'border border-transparent'}
         `}
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
         onClick={handleClick}
@@ -182,15 +182,15 @@ const FileTreeItem = ({
               onChange={(e) => onRenameChange(e.target.value)}
               onKeyDown={handleRenameKeyDown}
               onBlur={onRenameSubmit}
-              className={`w-full bg-[#3c3c3c] text-white text-sm px-1 py-0 outline-none rounded ${renameError ? 'border border-red-500' : 'border border-blue-400'}`}
+              className={`w-full bg-[#313244] text-[#cdd6f4] text-sm px-1.5 py-0.5 outline-none rounded ${renameError ? 'border border-[#f38ba8]' : 'border border-[#89b4fa]'}`}
               onClick={(e) => e.stopPropagation()}
             />
             {renameError && (
-              <span className="text-red-400 text-[10px] mt-0.5">{renameError}</span>
+              <span className="text-[#f38ba8] text-[10px] mt-0.5">{renameError}</span>
             )}
           </div>
         ) : (
-          <span className="text-sm text-gray-200 truncate">{item.name}</span>
+          <span className="text-sm truncate">{item.name}</span>
         )}
       </div>
       
@@ -444,17 +444,17 @@ const SideBar = () => {
   return (
     <div 
       ref={sidebarRef}
-      className="w-64 bg-[#252526] border-r border-[#3c3c3c] flex flex-col h-full overflow-hidden"
+      className="w-64 bg-gradient-to-b from-[#1e1e2e] to-[#181825] border-r border-[#313244] flex flex-col h-full overflow-hidden"
       onDragOver={handleSidebarDragOver}
       onDrop={handleSidebarDrop}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[#3c3c3c]">
-        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Explorer</span>
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#313244] bg-[#181825]/50">
+        <span className="text-xs font-semibold text-[#89b4fa] uppercase tracking-wider">Explorer</span>
         <div className="flex items-center gap-1">
           <button
             onClick={() => handleCreate('file', getParentForCreate())}
-            className="p-1 hover:bg-[#3c3c3c] rounded text-gray-400 hover:text-white"
+            className="p-1.5 hover:bg-[#313244] rounded-md text-[#6c7086] hover:text-[#cdd6f4] transition-all duration-150"
             title="New File"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -464,7 +464,7 @@ const SideBar = () => {
           </button>
           <button
             onClick={() => handleCreate('folder', getParentForCreate())}
-            className="p-1 hover:bg-[#3c3c3c] rounded text-gray-400 hover:text-white"
+            className="p-1.5 hover:bg-[#313244] rounded-md text-[#6c7086] hover:text-[#cdd6f4] transition-all duration-150"
             title="New Folder"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -474,7 +474,7 @@ const SideBar = () => {
           </button>
           <button
             onClick={collapseAll}
-            className="p-1 hover:bg-[#3c3c3c] rounded text-gray-400 hover:text-white"
+            className="p-1.5 hover:bg-[#313244] rounded-md text-[#6c7086] hover:text-[#cdd6f4] transition-all duration-150"
             title="Collapse All"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -486,7 +486,7 @@ const SideBar = () => {
       </div>
 
       {/* File Tree */}
-      <div className={`flex-1 overflow-auto py-1 ${dropTarget === 'root' ? 'bg-[#094771]/30' : ''}`}>
+      <div className={`flex-1 overflow-auto py-1 scrollbar-thin scrollbar-thumb-[#313244] scrollbar-track-transparent ${dropTarget === 'root' ? 'bg-[#89b4fa]/10' : ''}`}>
         {fileStructure.map(item => (
           <FileTreeItem
             key={item.id}
@@ -512,9 +512,9 @@ const SideBar = () => {
         ))}
         
         {fileStructure.length === 0 && (
-          <div className="px-4 py-8 text-center text-gray-500 text-sm">
+          <div className="px-4 py-8 text-center text-[#6c7086] text-sm">
             <p>No files yet</p>
-            <p className="mt-2 text-xs">Right-click to create a file or folder</p>
+            <p className="mt-2 text-xs text-[#585b70]">Right-click to create a file or folder</p>
           </div>
         )}
       </div>
@@ -522,14 +522,14 @@ const SideBar = () => {
       {/* Context Menu */}
       {contextMenu && (
         <div
-          className="context-menu fixed bg-[#252526] border border-[#3c3c3c] rounded shadow-xl py-1 z-50 min-w-[160px]"
+          className="context-menu fixed bg-[#1e1e2e] border border-[#313244] rounded-lg shadow-2xl py-1.5 z-50 min-w-[180px] backdrop-blur-sm"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           {contextMenu.item.type === 'folder' && (
             <>
               <button
                 onClick={() => handleCreate('file', contextMenu.item.id)}
-                className="w-full px-3 py-1.5 text-left text-sm text-gray-200 hover:bg-[#094771] flex items-center gap-2"
+                className="w-full px-3 py-1.5 text-left text-sm text-[#cdd6f4] hover:bg-[#45475a] flex items-center gap-2 transition-colors"
               >
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
                   <path d="M9.5 1.1l3.4 3.4.1.5v9.5l-.5.5h-9l-.5-.5v-13l.5-.5h6l.5.1zM9 2H4v12h8V6H9.5L9 5.5V2z"/>
@@ -538,26 +538,26 @@ const SideBar = () => {
               </button>
               <button
                 onClick={() => handleCreate('folder', contextMenu.item.id)}
-                className="w-full px-3 py-1.5 text-left text-sm text-gray-200 hover:bg-[#094771] flex items-center gap-2"
+                className="w-full px-3 py-1.5 text-left text-sm text-[#cdd6f4] hover:bg-[#45475a] flex items-center gap-2 transition-colors"
               >
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
                   <path d="M14.5 3H7.71l-1-1H1.5l-.5.5v11l.5.5h13l.5-.5v-10l-.5-.5z"/>
                 </svg>
                 New Folder
               </button>
-              <div className="border-t border-[#3c3c3c] my-1" />
+              <div className="border-t border-[#313244] my-1 mx-2" />
             </>
           )}
           
           <button
             onClick={() => startRename(contextMenu.item.id)}
-            className="w-full px-3 py-1.5 text-left text-sm text-gray-200 hover:bg-[#094771] flex items-center gap-2"
+            className="w-full px-3 py-1.5 text-left text-sm text-[#cdd6f4] hover:bg-[#45475a] flex items-center gap-2 transition-colors"
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
               <path d="M13.23 1h-1.46L3.52 9.25l-.16.22L1 13.59 2.41 15l4.12-2.36.22-.16L15 4.23V2.77L13.23 1zM2.41 13.59l1.51-3 1.45 1.45-2.96 1.55zm3.83-2.06L4.47 9.76l8-8 1.77 1.77-8 8z"/>
             </svg>
             Rename
-            <span className="ml-auto text-xs text-gray-500">F2</span>
+            <span className="ml-auto text-xs text-[#585b70]">F2</span>
           </button>
           
           <button
@@ -565,13 +565,13 @@ const SideBar = () => {
               setDeleteModal({ isOpen: true, item: contextMenu.item });
               setContextMenu(null);
             }}
-            className="w-full px-3 py-1.5 text-left text-sm text-red-400 hover:bg-[#094771] flex items-center gap-2"
+            className="w-full px-3 py-1.5 text-left text-sm text-[#f38ba8] hover:bg-[#f38ba8]/20 flex items-center gap-2 transition-colors"
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
               <path d="M10 3h3v1h-1v9l-1 1H4l-1-1V4H2V3h3V2a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1zM9 2H6v1h3V2zM4 13h7V4H4v9zm2-8H5v7h1V5zm1 0h1v7H7V5zm2 0h1v7H9V5z"/>
             </svg>
             Delete
-            <span className="ml-auto text-xs text-gray-500">Del</span>
+            <span className="ml-auto text-xs text-[#585b70]">Del</span>
           </button>
         </div>
       )}
@@ -588,22 +588,22 @@ const SideBar = () => {
           onChange={(e) => { setNewItemName(e.target.value); setCreateError(''); }}
           onKeyDown={(e) => e.key === 'Enter' && handleCreateConfirm()}
           placeholder={createModal.type === 'folder' ? 'Folder name' : 'File name'}
-          className={`w-full bg-[#3c3c3c] text-white text-sm px-3 py-2 border outline-none rounded ${createError ? 'border-red-500' : 'border-[#3c3c3c] focus:border-blue-500'}`}
+          className={`w-full bg-[#313244] text-[#cdd6f4] text-sm px-3 py-2 border outline-none rounded-lg ${createError ? 'border-[#f38ba8]' : 'border-[#45475a] focus:border-[#89b4fa]'} transition-colors`}
           autoFocus
         />
         {createError && (
-          <p className="text-red-400 text-xs mt-2">{createError}</p>
+          <p className="text-[#f38ba8] text-xs mt-2">{createError}</p>
         )}
         <div className="flex justify-end gap-2 mt-4">
           <button
             onClick={() => { setCreateModal({ isOpen: false, type: null, parentId: null }); setCreateError(''); }}
-            className="px-3 py-1.5 text-sm text-gray-300 hover:text-white hover:bg-[#3c3c3c] rounded"
+            className="px-4 py-1.5 text-sm text-[#a6adc8] hover:text-[#cdd6f4] hover:bg-[#313244] rounded-lg transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={handleCreateConfirm}
-            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+            className="px-4 py-1.5 text-sm bg-[#89b4fa] text-[#1e1e2e] font-medium rounded-lg hover:bg-[#b4befe] transition-colors"
           >
             Create
           </button>
@@ -616,20 +616,20 @@ const SideBar = () => {
         title="Confirm Delete"
         onClose={() => setDeleteModal({ isOpen: false, item: null })}
       >
-        <p className="text-sm text-gray-300">
+        <p className="text-sm text-[#a6adc8]">
           Are you sure you want to delete "{deleteModal.item?.name}"?
           {deleteModal.item?.type === 'folder' && ' This will also delete all contents inside.'}
         </p>
         <div className="flex justify-end gap-2 mt-4">
           <button
             onClick={() => setDeleteModal({ isOpen: false, item: null })}
-            className="px-3 py-1.5 text-sm text-gray-300 hover:text-white hover:bg-[#3c3c3c] rounded"
+            className="px-4 py-1.5 text-sm text-[#a6adc8] hover:text-[#cdd6f4] hover:bg-[#313244] rounded-lg transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={handleDeleteConfirm}
-            className="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+            className="px-4 py-1.5 text-sm bg-[#f38ba8] text-[#1e1e2e] font-medium rounded-lg hover:bg-[#eba0ac] transition-colors"
           >
             Delete
           </button>
@@ -642,22 +642,22 @@ const SideBar = () => {
         title="Move Item"
         onClose={() => { setMoveConfirmModal({ isOpen: false, item: null, target: null }); setMoveError(''); }}
       >
-        <p className="text-sm text-gray-300">
+        <p className="text-sm text-[#a6adc8]">
           Move "{moveConfirmModal.item?.name}" into "{moveConfirmModal.target?.name}"?
         </p>
         {moveError && (
-          <p className="text-red-400 text-xs mt-2">{moveError}</p>
+          <p className="text-[#f38ba8] text-xs mt-2">{moveError}</p>
         )}
         <div className="flex justify-end gap-2 mt-4">
           <button
             onClick={() => { setMoveConfirmModal({ isOpen: false, item: null, target: null }); setMoveError(''); }}
-            className="px-3 py-1.5 text-sm text-gray-300 hover:text-white hover:bg-[#3c3c3c] rounded"
+            className="px-4 py-1.5 text-sm text-[#a6adc8] hover:text-[#cdd6f4] hover:bg-[#313244] rounded-lg transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={handleMoveConfirm}
-            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+            className="px-4 py-1.5 text-sm bg-[#89b4fa] text-[#1e1e2e] font-medium rounded-lg hover:bg-[#b4befe] transition-colors"
           >
             Move
           </button>
