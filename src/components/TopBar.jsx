@@ -12,7 +12,8 @@ import {
         LogOut,
         Moon,
         Sun,
-        Zap
+        Zap,
+        LayoutDashboard
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useToast } from './ToastProvider';
@@ -25,6 +26,7 @@ const TopBar = ({
                 role: "Instructor",
                 avatarUrl: "https://i.pravatar.cc/150?u=davis"
         },
+        showDashboardButton = false,
         onMenuClick,
         onLayoutClick,
         onNotificationsClick,
@@ -128,6 +130,16 @@ const TopBar = ({
 
                                 {/* Action Icons */}
                                 <div className="flex items-center gap-1 border-r border-zinc-700/50 pr-3 mr-1">
+                                        {showDashboardButton && (
+                                                <button 
+                                                        onClick={() => navigate('/dashboard')}
+                                                        className="p-2.5 hover:bg-zinc-800 rounded-xl transition-all text-zinc-400 hover:text-indigo-400 hover:shadow-lg hover:shadow-indigo-500/10 flex items-center gap-2" 
+                                                        title="Go to Dashboard"
+                                                >
+                                                        <LayoutDashboard className="w-4 h-4" />
+                                                        <span className="hidden lg:inline text-xs font-medium">Dashboard</span>
+                                                </button>
+                                        )}
                                         <button 
                                                 onClick={handleThemeToggle}
                                                 className="p-2.5 hover:bg-zinc-800 rounded-xl transition-all text-zinc-400 hover:text-indigo-400 hover:shadow-lg hover:shadow-indigo-500/10" 

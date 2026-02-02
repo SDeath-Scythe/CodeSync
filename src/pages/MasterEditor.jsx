@@ -110,7 +110,10 @@ function MasterEditor() {
                         
                         {/* TopBar */}
                         <div className="shrink-0 z-50">
-                                <TopBar />
+                                <TopBar 
+                                        sessionTitle={sessionInfo?.title || "CodeSync Session"}
+                                        showDashboardButton={true}
+                                />
                         </div>
 
                         {/* Main Content */}

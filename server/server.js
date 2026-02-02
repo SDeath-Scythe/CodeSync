@@ -713,6 +713,10 @@ app.get('/sessions/:code/messages', async (req, res) => {
 // Track connected users per session
 const sessionUsers = new Map(); // sessionCode -> Map<socketId, userInfo>
 
+// Track user code files per session
+// sessionCode -> Map<userId, { files: { fileId: { content, lastModified } }, currentFile: string }>
+const sessionUserFiles = new Map();
+
 // Verify JWT token for socket connections
 const verifySocketToken = (token) => {
   try {
@@ -784,16 +788,26 @@ io.on('connection', (socket) => {
         cursorPosition: null
       });
       
+      // Get file data for all users in session
+      const userFiles = sessionUserFiles.get(currentSession) || new Map();
+      
+      // Build participants with their file data
+      const participantsWithFiles = Array.from(sessionUsers.get(currentSession).values()).map(u => ({
+        ...u,
+        files: userFiles.get(u.id)?.files || {},
+        currentFile: userFiles.get(u.id)?.currentFile || null
+      }));
+      
       // Notify others that user joined
       socket.to(currentSession).emit('user-joined', {
         user,
-        participants: Array.from(sessionUsers.get(currentSession).values())
+        participants: participantsWithFiles
       });
       
-      // Send current participants to joining user
+      // Send current participants with their files to joining user
       socket.emit('session-joined', {
         sessionCode: currentSession,
-        participants: Array.from(sessionUsers.get(currentSession).values())
+        participants: participantsWithFiles
       });
       
       console.log(`👤 ${user.name} joined session ${currentSession}`);
@@ -806,7 +820,26 @@ io.on('connection', (socket) => {
 
   // Code change event
   socket.on('code-change', ({ fileId, content, cursorPosition }) => {
-    if (!currentSession) return;
+    if (!currentSession || !currentUser) return;
+
+    console.log(`code-change received from user=${currentUser?.name} userId=${currentUser?.id} session=${currentSession} fileId=${fileId}`);
+
+    // Store the file content in memory
+    if (!sessionUserFiles.has(currentSession)) {
+      sessionUserFiles.set(currentSession, new Map());
+    }
+    const sessionFiles = sessionUserFiles.get(currentSession);
+    
+    if (!sessionFiles.has(currentUser.id)) {
+      sessionFiles.set(currentUser.id, { files: {}, currentFile: null });
+    }
+    
+    const userData = sessionFiles.get(currentUser.id);
+    userData.files[fileId] = {
+      content,
+      lastModified: Date.now()
+    };
+    userData.currentFile = fileId;
     
     // Broadcast to all other users in the session
     socket.to(currentSession).emit('code-update', {

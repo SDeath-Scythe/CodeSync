@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import { useLocalFileSystem } from '../context/LocalFileSystemContext';
+import { useCollaboration } from '../context/CollaborationContext';
 import {
   X,
   MoreHorizontal,
@@ -87,10 +88,24 @@ const LocalCodeEditor = ({ isFullscreen = false, onToggleFullscreen }) => {
   // Build breadcrumbs
   const breadcrumbs = activeFile ? getFilePath(activeFileId)?.split('/') || [] : [];
 
+  // Collaboration (send local edits to server when in session)
+  const { sendCodeChange, isConnected } = useCollaboration();
+
   // Handle editor change
   const handleEditorChange = (value) => {
     if (activeFileId && value !== undefined) {
       updateFileContent(activeFileId, value);
+
+      // If connected to a session, forward local edits as code-change events
+      try {
+        if (isConnected) {
+          const filePath = getFilePath(activeFileId) || activeFileId;
+          const position = editorRef.current?.getPosition();
+          sendCodeChange(filePath, value, position);
+        }
+      } catch (e) {
+        // non-fatal
+      }
     }
   };
 
