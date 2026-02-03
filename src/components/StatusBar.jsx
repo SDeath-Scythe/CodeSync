@@ -8,7 +8,9 @@ import {
         Bell,
         Wifi,
         Zap,
-        Radio
+        Radio,
+        Save,
+        Loader
 } from 'lucide-react';
 
 const StatusBar = ({
@@ -16,8 +18,20 @@ const StatusBar = ({
         line = 12,
         col = 45,
         language = "JavaScript React",
-        isLive = true
+        isLive = true,
+        isSaving = false,
+        lastSaved = null
 }) => {
+        // Format last saved time
+        const formatLastSaved = (date) => {
+                if (!date) return null;
+                const now = new Date();
+                const diff = Math.floor((now - date) / 1000);
+                if (diff < 60) return 'just now';
+                if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+                return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        };
+
         return (
                 <div className="h-7 bg-gradient-to-r from-indigo-600 via-indigo-600 to-purple-600 text-white flex items-center justify-between px-4 text-[11px] select-none font-sans z-50 shadow-lg relative overflow-hidden">
 
@@ -37,6 +51,28 @@ const StatusBar = ({
                                                         </div>
                                                 </div>
                                                 <span className="font-bold text-white">LIVE</span>
+                                        </div>
+                                )}
+
+                                {/* Save Status Indicator */}
+                                {(isSaving || lastSaved) && (
+                                        <div className={`flex items-center gap-1.5 px-2.5 h-5 rounded-full cursor-pointer transition-all ${isSaving
+                                                        ? 'bg-amber-500/30 hover:bg-amber-500/40'
+                                                        : 'bg-emerald-500/30 hover:bg-emerald-500/40'
+                                                }`} title={isSaving ? 'Saving...' : `Last saved: ${lastSaved?.toLocaleString()}`}>
+                                                {isSaving ? (
+                                                        <>
+                                                                <Loader className="w-3 h-3 animate-spin" />
+                                                                <span className="font-semibold hidden sm:inline">Saving...</span>
+                                                        </>
+                                                ) : (
+                                                        <>
+                                                                <Save className="w-3 h-3" />
+                                                                <span className="font-semibold hidden sm:inline">
+                                                                        Saved {formatLastSaved(lastSaved)}
+                                                                </span>
+                                                        </>
+                                                )}
                                         </div>
                                 )}
 

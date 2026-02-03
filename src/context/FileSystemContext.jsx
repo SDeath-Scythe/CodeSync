@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 
 // Default project structure
 const DEFAULT_FILE_STRUCTURE = [
@@ -76,7 +76,7 @@ export const FileSystemProvider = ({ children }) => {
     } else {
       siblings = fileStructure;
     }
-    return siblings.some(item => 
+    return siblings.some(item =>
       item.name.toLowerCase() === name.toLowerCase() && item.id !== excludeId
     );
   }, [fileStructure, findItemById]);
@@ -217,7 +217,7 @@ export const FileSystemProvider = ({ children }) => {
 
     // Remove from open files
     setOpenFiles(prev => prev.filter(f => !fileIdsToDelete.includes(f.id)));
-    
+
     // Clear active file if it's being deleted
     if (fileIdsToDelete.includes(activeFileId)) {
       setActiveFileId(null);
@@ -283,7 +283,7 @@ export const FileSystemProvider = ({ children }) => {
     });
 
     // Update open files
-    setOpenFiles(prev => prev.map(f => 
+    setOpenFiles(prev => prev.map(f =>
       f.id === id ? { ...f, name: newName.trim() } : f
     ));
 
@@ -309,7 +309,7 @@ export const FileSystemProvider = ({ children }) => {
         };
         return check(parent.children);
       };
-      
+
       if (itemId === newParentId || isDescendant(itemId, newParentId)) {
         return { error: 'Cannot move a folder into itself or its subfolder' };
       }
@@ -437,21 +437,171 @@ export const FileSystemProvider = ({ children }) => {
       ...prev,
       [id]: content
     }));
-    
+
     // Mark as unsaved
-    setOpenFiles(prev => prev.map(f => 
+    setOpenFiles(prev => prev.map(f =>
       f.id === id ? { ...f, unsaved: true } : f
     ));
   }, []);
 
   // Save file
   const saveFile = useCallback((id) => {
-    setOpenFiles(prev => prev.map(f => 
+    setOpenFiles(prev => prev.map(f =>
       f.id === id ? { ...f, unsaved: false } : f
     ));
   }, []);
 
-  const value = {
+  // Serialize the entire file structure for saving to database
+  // Returns { files, fileContents } for efficient JSON storage
+  const serializeForSave = useCallback(() => {
+    const files = [];
+
+    const traverseTree = (items, parentPath = '') => {
+      for (const item of items) {
+        const path = parentPath ? `${parentPath}/${item.name}` : item.name;
+
+        files.push({
+          id: item.id,
+          name: item.name,
+          path: path,
+          content: item.type === 'file' ? (fileContents[item.id] || '') : '',
+          language: item.language || null,
+          isFolder: item.type === 'folder',
+          parentPath: parentPath || null
+        });
+
+        if (item.children) {
+          traverseTree(item.children, path);
+        }
+      }
+    };
+
+    traverseTree(fileStructure);
+
+    // Return the complete workspace data for JSON storage
+    return {
+      files,
+      fileContents,
+      fileTree: fileStructure  // Also include the tree structure directly
+    };
+  }, [fileStructure, fileContents]);
+
+  // Load file structure from database records
+  // Supports both: flat array with paths AND nested tree structure
+  const loadFromSession = useCallback((sessionFiles, fileContentsMap = {}) => {
+    if (!sessionFiles || sessionFiles.length === 0) {
+      return;
+    }
+
+    // Check if this is a TREE structure (has 'children') or FLAT array (has 'path')
+    const isTreeStructure = sessionFiles[0] && 'children' in sessionFiles[0] && !sessionFiles[0].path;
+
+    if (isTreeStructure) {
+      // It's already a tree structure - use directly!
+      console.log('📂 Loading tree structure directly (found children property)');
+      setFileStructure(sessionFiles);
+      setFileContents(fileContentsMap);
+      setOpenFiles([]);
+      setActiveFileId(null);
+      console.log(`📂 Loaded ${sessionFiles.length} root items from session`);
+      return;
+    }
+
+    // It's a flat array with paths - need to build tree
+    // Filter out invalid files (must have path)
+    const validFiles = sessionFiles.filter(file => file && file.path);
+
+    // Normalize files - extract name and parentPath from path if missing
+    const normalizedFiles = validFiles.map(file => {
+      const pathParts = file.path.split('/');
+      const name = file.name || pathParts[pathParts.length - 1];
+      const parentPath = file.parentPath !== undefined
+        ? file.parentPath
+        : (pathParts.length > 1 ? pathParts.slice(0, -1).join('/') : null);
+
+      return {
+        ...file,
+        name,
+        parentPath
+      };
+    });
+
+    // Sort files by path depth (folders first, then by path)
+    const sortedFiles = [...normalizedFiles].sort((a, b) => {
+      const depthA = (a.path.match(/\//g) || []).length;
+      const depthB = (b.path.match(/\//g) || []).length;
+      if (depthA !== depthB) return depthA - depthB;
+      return a.path.localeCompare(b.path);
+    });
+
+    // Build the file tree structure
+    const rootItems = [];
+    const itemMap = new Map();
+    const newContents = {};
+
+    for (const file of sortedFiles) {
+      const item = {
+        id: file.id || `${file.isFolder ? 'folder' : 'file'}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        name: file.name,
+        type: file.isFolder ? 'folder' : 'file',
+        isOpen: file.isFolder ? true : undefined,
+        children: file.isFolder ? [] : undefined,
+        language: file.language || undefined
+      };
+
+      itemMap.set(file.path, item);
+
+      // Store file content
+      if (!file.isFolder) {
+        newContents[item.id] = file.content || '';
+      }
+
+      // Add to parent or root
+      if (file.parentPath) {
+        const parent = itemMap.get(file.parentPath);
+        if (parent && parent.children) {
+          parent.children.push(item);
+        } else {
+          // Parent not found yet, add to root
+          rootItems.push(item);
+        }
+      } else {
+        rootItems.push(item);
+      }
+    }
+
+    // Sort all children (folders first, then alphabetically)
+    const sortChildren = (items) => {
+      items.sort((a, b) => {
+        if (a.type !== b.type) {
+          return a.type === 'folder' ? -1 : 1;
+        }
+        return a.name.localeCompare(b.name);
+      });
+      items.forEach(item => {
+        if (item.children) {
+          sortChildren(item.children);
+        }
+      });
+    };
+
+    sortChildren(rootItems);
+
+    // Update state
+    setFileStructure(rootItems);
+    setFileContents(newContents);
+    setOpenFiles([]);
+    setActiveFileId(null);
+
+    console.log(`📂 Loaded ${sortedFiles.length} files from session`);
+  }, []);
+
+  // Mark all files as saved
+  const markAllSaved = useCallback(() => {
+    setOpenFiles(prev => prev.map(f => ({ ...f, unsaved: false })));
+  }, []);
+
+  const value = useMemo(() => ({
     fileStructure,
     fileContents,
     openFiles,
@@ -470,8 +620,35 @@ export const FileSystemProvider = ({ children }) => {
     closeFile,
     getFileContent,
     updateFileContent,
-    saveFile
-  };
+    saveFile,
+    // New session save/load functions
+    serializeForSave,
+    loadFromSession,
+    markAllSaved
+  }), [
+    fileStructure,
+    fileContents,
+    openFiles,
+    activeFileId,
+    setActiveFileId,
+    findItemById,
+    findParent,
+    getFilePath,
+    createItem,
+    deleteItem,
+    renameItem,
+    moveItem,
+    toggleFolder,
+    collapseAll,
+    openFile,
+    closeFile,
+    getFileContent,
+    updateFileContent,
+    saveFile,
+    serializeForSave,
+    loadFromSession,
+    markAllSaved
+  ]);
 
   return (
     <FileSystemContext.Provider value={value}>

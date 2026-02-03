@@ -30,7 +30,7 @@ model User {
   sessionsOwned Session[] @relation("SessionOwner")
   sessionsJoined SessionParticipant[]
   chatMessages  ChatMessage[]
-  filesCreated  SessionFile[] @relation("FilesCreated")
+  workspaces    SessionWorkspace[] @relation("WorkspaceOwner")
   
   @@unique([provider, providerId])
 }
@@ -50,8 +50,8 @@ model Session {
   // Participants
   participants SessionParticipant[]
   
-  // Files in session
-  files       SessionFile[]
+  // User workspaces (file trees stored as JSON)
+  workspaces  SessionWorkspace[]
   
   // Chat messages
   messages    ChatMessage[]
@@ -73,29 +73,28 @@ model SessionParticipant {
   @@unique([sessionId, userId])
 }
 
-// Files stored in a session
-model SessionFile {
+// User's file workspace stored as a single JSON record per session
+// One record per user-session combination - saves the entire folder structure as JSON
+model SessionWorkspace {
   id        String   @id @default(cuid())
   sessionId String
   session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   
-  name      String   // File name
-  path      String   // Full path like "src/components/Button.jsx"
-  content   String   @default("") // File content
-  language  String?  // Language hint (javascript, css, etc)
-  
-  // For folder structure
-  isFolder  Boolean  @default(false)
-  parentPath String? // Parent folder path
+  // The entire file structure stored as JSON
+  // Format: { fileTree: [...], fileContents: { fileId: content, ... } }
+  data      Json     // Contains both structure and contents
   
   // Ownership tracking
-  createdById String?  // Who created the file
-  createdBy   User?    @relation("FilesCreated", fields: [createdById], references: [id])
+  createdById   String   // User ID who owns this workspace
+  createdBy     User     @relation("WorkspaceOwner", fields: [createdById], references: [id])
+  createdByName String   // User's display name (cached for easy display)
   
+  // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   
-  @@unique([sessionId, path])
+  // Each user has exactly ONE workspace record per session
+  @@unique([sessionId, createdById])
 }
 
 // Chat messages in a session

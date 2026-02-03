@@ -1,0 +1,45 @@
+{
+  "sessionId": "cml4fhkz50000fm1idcy6u7kt",
+  "files": [
+    {
+      "id": "cml4uzpv5000tecyf6c9s9f7a",
+      "sessionId": "cml4fhkz50000fm1idcy6u7kt",
+      "name": "app.js",
+      "path": "My_Project/app.js",
+      "content": "console.log(\"helloWorld\");\n",
+      "language": "javascript",
+      "isFolder": false,
+      "parentPath": null
+    },
+    {
+      "id": "cml4t82dl0000lb2jn770xeiz",
+      "sessionId": "cml4fhkz50000fm1idcy6u7kt",
+      "name": "app.js",
+      "path": "__user__/cml4erzju0002eb5wjs8p690r/My_Project/app.js",
+      "content": "console.log(\"helloWorld\");\n",
+      "language": "javascript",
+      "isFolder": false,
+      "parentPath": null
+    },
+    {
+      "id": "cml4u8htr0000ecyfhcbi587z",
+      "sessionId": "cml4fhkz50000fm1idcy6u7kt",
+      "name": "newFile.jsssss",
+      "path": "__user__/cml4erzju0002eb5wjs8p690r/New Folders/newFile.jsssss",
+      "content": "// newFile.jsssss\nsadad",
+      "language": null,
+      "isFolder": false,
+      "parentPath": null
+    },
+    {
+      "id": "cml4t9fj20002lb2jpxiq2zxp",
+      "sessionId": "cml4fhkz50000fm1idcy6u7kt",
+      "name": "newFile.js",
+      "path": "__user__/cml4erzju0002eb5wjs8p690r/newFile.js",
+      "content": "// newFile.js\n\nssssss",
+      "language": null,
+      "isFolder": false,
+      "parentPath": null
+    }
+  ]
+}
