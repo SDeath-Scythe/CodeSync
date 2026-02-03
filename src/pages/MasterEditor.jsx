@@ -6,6 +6,7 @@ import CodeEditor from '../components/CodeEdtor'
 import ClassroomPanel from '../components/ClassroomPanel'
 import StatusBar from '../components/StatusBar'
 import ResizablePanel from '../components/ResizablePanel'
+import Terminal from '../components/Terminal'
 import { FileSystemProvider, useFileSystem } from '../context/FileSystemContext'
 import { useCollaboration } from '../context/CollaborationContext'
 import { useToast } from '../components/ToastProvider'
@@ -53,16 +54,18 @@ const PanelHeader = ({ title, onClose, children, className = '' }) => (
 // Inner editor component that uses the save hook (must be inside FileSystemProvider)
 function MasterEditorContent({ sessionInfo }) {
         const navigate = useNavigate();
-        const { joinSession, currentSession, loadSessionFromDb } = useCollaboration();
-        const { loadFromSession } = useFileSystem();
+        const { joinSession, currentSession, loadSessionFromDb, socket } = useCollaboration();
+        const { loadFromSession, fileStructure, fileContents } = useFileSystem();
         const { isSaving, lastSaved } = useSaveSession();
 
         const [showSidebar, setShowSidebar] = useState(true);
         const [showClassroom, setShowClassroom] = useState(true);
+        const [showTerminal, setShowTerminal] = useState(false);
         const [showCursors, setShowCursors] = useState(true);
         const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
         const [classroomCollapsed, setClassroomCollapsed] = useState(false);
         const [fullscreenMode, setFullscreenMode] = useState(null);
+        const [terminalHeight, setTerminalHeight] = useState(250);
 
         // Loading states for files
         const [isLoadingFiles, setIsLoadingFiles] = useState(false);
@@ -143,6 +146,18 @@ function MasterEditorContent({ sessionInfo }) {
                 setShowCursors(prev => !prev);
         }, []);
 
+        const toggleTerminal = useCallback(() => {
+                setShowTerminal(prev => !prev);
+        }, []);
+
+        // Get files for terminal sync
+        const getFilesForSync = useCallback(() => {
+                return {
+                        files: fileStructure,
+                        fileContents: fileContents
+                };
+        }, [fileStructure, fileContents]);
+
         // Determine what to show based on fullscreen mode
         const showSidebarPanel = fullscreenMode === null && showSidebar;
         const showCodeEditor = fullscreenMode !== 'classroom';
@@ -212,15 +227,50 @@ function MasterEditorContent({ sessionInfo }) {
                                         </ResizablePanel>
                                 )}
 
-                                {/* Code Editor - Main Area */}
+                                {/* Code Editor + Terminal - Main Area */}
                                 {showCodeEditor && (
-                                        <div className={`${fullscreenMode === 'code' ? 'flex-1' : 'flex-1'} h-full min-w-0 bg-zinc-900/50 backdrop-blur-sm relative`}>
-                                                <CodeEditor
-                                                        isFullscreen={fullscreenMode === 'code'}
-                                                        onToggleFullscreen={() => toggleFullscreen('code')}
-                                                        showCursors={showCursors}
-                                                        onToggleCursors={toggleCursors}
-                                                />
+                                        <div className={`${fullscreenMode === 'code' ? 'flex-1' : 'flex-1'} h-full min-w-0 bg-zinc-900/50 backdrop-blur-sm relative flex flex-col`}>
+                                                {/* Editor Area */}
+                                                <div className={`${showTerminal ? 'flex-1' : 'h-full'} min-h-0 overflow-hidden`}>
+                                                        <CodeEditor
+                                                                isFullscreen={fullscreenMode === 'code'}
+                                                                onToggleFullscreen={() => toggleFullscreen('code')}
+                                                                showCursors={showCursors}
+                                                                onToggleCursors={toggleCursors}
+                                                                onToggleTerminal={toggleTerminal}
+                                                                showTerminal={showTerminal}
+                                                        />
+                                                </div>
+
+                                                {/* Terminal Panel */}
+                                                {showTerminal && (
+                                                        <div
+                                                                className="shrink-0 border-t border-[#313244]"
+                                                                style={{ height: `${terminalHeight}px` }}
+                                                        >
+                                                                <Terminal
+                                                                        socket={socket}
+                                                                        sessionCode={currentSession}
+                                                                        onSync={getFilesForSync}
+                                                                        className="h-full"
+                                                                />
+                                                        </div>
+                                                )}
+
+                                                {/* Terminal Toggle Button (bottom edge) */}
+                                                {!showTerminal && fullscreenMode !== 'code' && (
+                                                        <button
+                                                                onClick={toggleTerminal}
+                                                                className="absolute bottom-0 left-1/2 -translate-x-1/2 bg-[#1e1e2e] hover:bg-[#313244] border border-[#313244] border-b-0 hover:border-[#89b4fa] text-[#6c7086] hover:text-[#89b4fa] px-4 py-1 rounded-t-lg text-xs font-semibold shadow-lg transition-all duration-200 hover:scale-105 flex items-center gap-2 z-10"
+                                                                title="Show Terminal"
+                                                        >
+                                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                        <polyline points="4 17 10 11 4 5" />
+                                                                        <line x1="12" y1="19" x2="20" y2="19" />
+                                                                </svg>
+                                                                Terminal
+                                                        </button>
+                                                )}
 
                                                 {/* Explorer restore button - positioned on the left edge, vertically centered */}
                                                 {!showSidebar && fullscreenMode === null && (

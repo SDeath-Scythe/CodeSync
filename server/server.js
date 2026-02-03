@@ -5,9 +5,14 @@ import bcrypt from 'bcryptjs';
 import { config } from 'dotenv';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
+import { createRequire } from 'module';
 
 // Load environment variables before Prisma
 config();
+
+// Import CommonJS terminal service
+const require = createRequire(import.meta.url);
+const terminalService = require('./services/terminalService.js');
 
 // Log the database URL (masked for security)
 const dbUrl = process.env.DATABASE_URL;
@@ -816,6 +821,118 @@ app.get('/sessions/:code/messages', async (req, res) => {
 });
 
 // ============================================
+// TERMINAL & CODE EXECUTION ENDPOINTS
+// ============================================
+
+// Execute code (quick run - not persistent shell)
+app.post('/execute', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const { sessionCode, files, fileContents, command, language } = req.body;
+
+  // Verify auth
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  let userId;
+  try {
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, JWT_SECRET);
+    userId = decoded.userId;
+  } catch (e) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+
+  if (!sessionCode) {
+    return res.status(400).json({ error: 'Session code is required' });
+  }
+
+  try {
+    // Get or create workspace directory
+    const workspacePath = terminalService.getWorkspaceDir(sessionCode, userId);
+
+    // Sync files to workspace
+    if (files && fileContents) {
+      terminalService.syncFilesToWorkspace(workspacePath, files, fileContents);
+    }
+
+    // Determine command to run
+    let execCommand = command;
+    if (!execCommand && language) {
+      // Auto-detect command based on language
+      const langCommands = {
+        javascript: 'node',
+        python: 'python',
+        java: 'java',
+        typescript: 'npx ts-node',
+        go: 'go run',
+        ruby: 'ruby',
+        php: 'php'
+      };
+      execCommand = langCommands[language.toLowerCase()] || 'node';
+    }
+
+    if (!execCommand) {
+      return res.status(400).json({ error: 'No command specified' });
+    }
+
+    // Execute the command
+    const result = await terminalService.executeCode(workspacePath, execCommand);
+
+    res.json({
+      success: result.success,
+      output: result.stdout,
+      stderr: result.stderr,
+      exitCode: result.exitCode,
+      executionTime: result.executionTime,
+      workspacePath
+    });
+  } catch (error) {
+    console.error('Execute error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      stderr: error.message
+    });
+  }
+});
+
+// Sync files to workspace (for terminal to use)
+app.post('/sessions/:code/sync-workspace', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const { code } = req.params;
+  const { files, fileContents } = req.body;
+
+  // Verify auth
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  let userId;
+  try {
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, JWT_SECRET);
+    userId = decoded.userId;
+  } catch (e) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+
+  try {
+    const workspacePath = terminalService.getWorkspaceDir(code.toUpperCase(), userId);
+    terminalService.syncFilesToWorkspace(workspacePath, files || [], fileContents || {});
+
+    res.json({
+      success: true,
+      workspacePath,
+      message: 'Workspace synced successfully'
+    });
+  } catch (error) {
+    console.error('Sync workspace error:', error);
+    res.status(500).json({ error: 'Failed to sync workspace' });
+  }
+});
+
+// ============================================
 // SOCKET.IO - REAL-TIME COLLABORATION
 // ============================================
 
@@ -1154,6 +1271,78 @@ io.on('connection', (socket) => {
       socketId: socket.id,
       enabled
     });
+  });
+
+  // ============================================
+  // TERMINAL EVENTS
+  // ============================================
+
+  // Start a terminal session
+  socket.on('terminal-start', ({ cols, rows }) => {
+    if (!currentSession || !currentUser) {
+      socket.emit('terminal-error', { message: 'Not in a session' });
+      return;
+    }
+
+    try {
+      const terminal = terminalService.createTerminal(
+        currentSession,
+        currentUser.id,
+        cols || 80,
+        rows || 24
+      );
+
+      // Set up data listener for this terminal
+      terminal.pty.onData((data) => {
+        socket.emit('terminal-data', { data });
+      });
+
+      terminal.pty.onExit(({ exitCode }) => {
+        socket.emit('terminal-exit', { exitCode });
+      });
+
+      socket.emit('terminal-started', {
+        message: 'Terminal started',
+        workspacePath: terminal.workspacePath
+      });
+
+      console.log(`🖥️ Terminal started for ${currentUser.name} in ${currentSession}`);
+    } catch (error) {
+      console.error('Terminal start error:', error);
+      socket.emit('terminal-error', { message: error.message });
+    }
+  });
+
+  // Send input to terminal
+  socket.on('terminal-input', ({ data }) => {
+    if (!currentSession || !currentUser) return;
+    terminalService.writeToTerminal(currentSession, currentUser.id, data);
+  });
+
+  // Resize terminal
+  socket.on('terminal-resize', ({ cols, rows }) => {
+    if (!currentSession || !currentUser) return;
+    terminalService.resizeTerminal(currentSession, currentUser.id, cols, rows);
+  });
+
+  // Kill terminal
+  socket.on('terminal-kill', () => {
+    if (!currentSession || !currentUser) return;
+    terminalService.killTerminal(currentSession, currentUser.id);
+    socket.emit('terminal-killed', { message: 'Terminal terminated' });
+  });
+
+  // Sync files to workspace before running
+  socket.on('terminal-sync', ({ files, fileContents }) => {
+    if (!currentSession || !currentUser) return;
+
+    try {
+      const workspacePath = terminalService.getWorkspaceDir(currentSession, currentUser.id);
+      terminalService.syncFilesToWorkspace(workspacePath, files || [], fileContents || {});
+      socket.emit('terminal-synced', { workspacePath });
+    } catch (error) {
+      socket.emit('terminal-error', { message: error.message });
+    }
   });
 
   // Disconnect
