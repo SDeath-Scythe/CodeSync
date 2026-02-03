@@ -203,12 +203,66 @@ export const LocalFileSystemProvider = ({ children }) => {
     return buildPath(fileStructure) || '';
   }, [fileStructure]);
 
-  // Rename item
+  // Validate file/folder name
+  const validateName = useCallback((name, parentItems, excludeId = null) => {
+    if (!name || !name.trim()) {
+      return { valid: false, error: 'Name cannot be empty' };
+    }
+
+    const trimmedName = name.trim();
+
+    // Check for invalid characters
+    const invalidChars = /[<>:"/\\|?*]/;
+    if (invalidChars.test(trimmedName)) {
+      return { valid: false, error: 'Name contains invalid characters: < > : " / \\ | ? *' };
+    }
+
+    // Check for reserved names
+    const reservedNames = ['CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4', 'LPT1', 'LPT2', 'LPT3'];
+    if (reservedNames.includes(trimmedName.toUpperCase().split('.')[0])) {
+      return { valid: false, error: 'This name is reserved by the system' };
+    }
+
+    // Check if name already exists in same folder
+    if (parentItems) {
+      const exists = parentItems.some(item =>
+        item.name.toLowerCase() === trimmedName.toLowerCase() && item.id !== excludeId
+      );
+      if (exists) {
+        return { valid: false, error: 'An item with this name already exists' };
+      }
+    }
+
+    return { valid: true };
+  }, []);
+
+  // Get parent items for an item
+  const getParentItems = useCallback((itemId, items = fileStructure, parent = null) => {
+    for (const item of items) {
+      if (item.id === itemId) {
+        return parent ? parent.children : fileStructure;
+      }
+      if (item.children) {
+        const found = getParentItems(itemId, item.children, item);
+        if (found) return found;
+      }
+    }
+    return null;
+  }, [fileStructure]);
+
+  // Rename item with validation
   const renameItem = useCallback((itemId, newName) => {
+    const parentItems = getParentItems(itemId);
+    const validation = validateName(newName, parentItems, itemId);
+
+    if (!validation.valid) {
+      return { error: validation.error };
+    }
+
     const rename = (items) => {
       return items.map(item => {
         if (item.id === itemId) {
-          return { ...item, name: newName };
+          return { ...item, name: newName.trim() };
         }
         if (item.children) {
           return { ...item, children: rename(item.children) };
@@ -218,7 +272,134 @@ export const LocalFileSystemProvider = ({ children }) => {
     };
 
     setFileStructure(prev => rename(prev));
-    setOpenFiles(prev => prev.map(f => f.id === itemId ? { ...f, name: newName } : f));
+    setOpenFiles(prev => prev.map(f => f.id === itemId ? { ...f, name: newName.trim() } : f));
+    return { success: true };
+  }, [getParentItems, validateName]);
+
+  // Move item to a new parent
+  const moveItem = useCallback((itemId, targetId) => {
+    if (itemId === targetId) return { error: 'Cannot move item to itself' };
+
+    let itemToMove = null;
+
+    // Check if target is a descendant of item (would create circular reference)
+    const isDescendant = (parentId, childId, items = fileStructure) => {
+      for (const item of items) {
+        if (item.id === parentId) {
+          const checkChildren = (children) => {
+            for (const child of children) {
+              if (child.id === childId) return true;
+              if (child.children && checkChildren(child.children)) return true;
+            }
+            return false;
+          };
+          return item.children ? checkChildren(item.children) : false;
+        }
+        if (item.children) {
+          const found = isDescendant(parentId, childId, item.children);
+          if (found) return found;
+        }
+      }
+      return false;
+    };
+
+    if (isDescendant(itemId, targetId)) {
+      return { error: 'Cannot move a folder into its own subfolder' };
+    }
+
+    // Find and remove item
+    const removeItem = (items) => {
+      return items.filter(item => {
+        if (item.id === itemId) {
+          itemToMove = { ...item };
+          return false;
+        }
+        if (item.children) {
+          item.children = removeItem(item.children);
+        }
+        return true;
+      });
+    };
+
+    // Add item to target
+    const addToTarget = (items) => {
+      return items.map(item => {
+        if (item.id === targetId && item.type === 'folder') {
+          // Check for name conflict
+          const exists = item.children?.some(child =>
+            child.name.toLowerCase() === itemToMove.name.toLowerCase()
+          );
+          if (exists) {
+            return item; // Will handle error below
+          }
+          return {
+            ...item,
+            children: [...(item.children || []), itemToMove]
+          };
+        }
+        if (item.children) {
+          return { ...item, children: addToTarget(item.children) };
+        }
+        return item;
+      });
+    };
+
+    setFileStructure(prev => {
+      let newStructure = removeItem([...prev]);
+      if (itemToMove) {
+        if (targetId === 'root' || targetId === null) {
+          // Check for name conflict at root
+          const exists = newStructure.some(item =>
+            item.name.toLowerCase() === itemToMove.name.toLowerCase()
+          );
+          if (!exists) {
+            newStructure = [...newStructure, itemToMove];
+          }
+        } else {
+          newStructure = addToTarget(newStructure);
+        }
+      }
+      return newStructure;
+    });
+
+    return { success: true };
+  }, [fileStructure]);
+
+  // Toggle folder open/closed
+  const toggleFolder = useCallback((folderId) => {
+    setFileStructure(prev => {
+      const toggle = (items) => {
+        return items.map(item => {
+          if (item.id === folderId && item.type === 'folder') {
+            return { ...item, isOpen: !item.isOpen };
+          }
+          if (item.children) {
+            return { ...item, children: toggle(item.children) };
+          }
+          return item;
+        });
+      };
+      return toggle(prev);
+    });
+  }, []);
+
+  // Collapse all folders
+  const collapseAll = useCallback(() => {
+    setFileStructure(prev => {
+      const collapse = (items) => {
+        return items.map(item => {
+          if (item.type === 'folder') {
+            return {
+              ...item,
+              isOpen: false,
+              children: item.children ? collapse(item.children) : []
+            };
+          }
+          return item;
+        });
+      };
+      return collapse(prev);
+    });
   }, []);
 
   // Serialize file structure for saving to database
@@ -381,6 +562,11 @@ export const LocalFileSystemProvider = ({ children }) => {
     deleteItem,
     getFilePath,
     renameItem,
+    moveItem,
+    toggleFolder,
+    collapseAll,
+    validateName,
+    getParentItems,
     // Save/Load functions
     serializeForSave,
     loadFromSession,
@@ -400,6 +586,11 @@ export const LocalFileSystemProvider = ({ children }) => {
     deleteItem,
     getFilePath,
     renameItem,
+    moveItem,
+    toggleFolder,
+    collapseAll,
+    validateName,
+    getParentItems,
     serializeForSave,
     loadFromSession,
     markAllSaved,
