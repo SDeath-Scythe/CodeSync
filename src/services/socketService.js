@@ -23,7 +23,7 @@ class SocketService {
 
     this.socket.on('connect', () => {
       console.log('🔌 Socket connected:', this.socket.id);
-      
+
       // Rejoin session if we were in one
       if (this.sessionCode) {
         this.joinSession(this.sessionCode);
@@ -65,7 +65,7 @@ class SocketService {
 
     this.sessionCode = sessionCode;
     console.log('🎯 Joining session:', sessionCode);
-    
+
     // If socket is connected, join immediately
     if (this.socket.connected) {
       this.socket.emit('join-session', { sessionCode, token });
@@ -286,25 +286,30 @@ class SocketService {
     return this.socket?.id || null;
   }
 
+  // Get raw socket instance (needed for terminal)
+  getSocket() {
+    return this.socket;
+  }
+
   // ============================================
   // HELPER METHODS
   // ============================================
 
   addListener(event, callback) {
     if (!this.socket) return;
-    
+
     // Remove existing listener if any
     if (this.listeners.has(event)) {
       this.socket.off(event, this.listeners.get(event));
     }
-    
+
     this.listeners.set(event, callback);
     this.socket.on(event, callback);
   }
 
   removeListener(event) {
     if (!this.socket || !this.listeners.has(event)) return;
-    
+
     this.socket.off(event, this.listeners.get(event));
     this.listeners.delete(event);
   }

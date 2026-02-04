@@ -271,6 +271,9 @@ export const CollaborationProvider = ({ children }) => {
     joinSession,
     leaveSession,
 
+    // Socket (for terminal)
+    socket: socketService.getSocket(),
+
     // Chat
     messages,
     typingUsers,
