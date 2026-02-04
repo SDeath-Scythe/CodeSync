@@ -11,8 +11,6 @@ import {
   Split,
   ChevronRight,
   Maximize2,
-  Trash2,
-  Plus,
   Minimize2,
   Users,
   Eye,
@@ -23,9 +21,9 @@ import {
  * CodeEditor Component
  * Uses Monaco Editor for the editing surface and connects to FileSystemContext.
  */
-const CodeEditor = ({ 
-  isFullscreen = false, 
-  onToggleFullscreen, 
+const CodeEditor = ({
+  isFullscreen = false,
+  onToggleFullscreen,
   readOnly = false,
   showCursors = true,
   onToggleCursors
@@ -45,12 +43,6 @@ const CodeEditor = ({
 
   const { remoteCursors, isConnected, sendCodeChange, pendingChanges, consumePendingChanges } = useCollaboration();
   const { user } = useAuth();
-
-  // Terminal State
-  const [terminalOpen, setTerminalOpen] = useState(true);
-  const [terminalHeight, setTerminalHeight] = useState(192);
-  const [isResizing, setIsResizing] = useState(false);
-  const [activeTab, setActiveTab] = useState(0);
 
   // Monaco Refs
   const editorRef = useRef(null);
@@ -134,19 +126,19 @@ const CodeEditor = ({
 
     const editor = editorRef.current;
     const monaco = monacoRef.current;
-    
+
     // Debug
     console.log('📍 Cursor effect - readOnly:', readOnly, 'showCursors:', showCursors);
     console.log('📍 remoteCursors:', Array.from(remoteCursors.entries()));
     console.log('📍 activeFileId:', activeFileId);
-    
+
     // If cursors are hidden, clear all decorations
     if (!showCursors) {
       decorationsRef.current = editor.deltaDecorations(decorationsRef.current, []);
       setCursorLabels([]);
       return;
     }
-    
+
     // Filter cursors for the current file
     // Only filter out own cursor if NOT in readOnly mode (teachers don't see their own cursor)
     // Students (readOnly) see ALL cursors including the teacher's
@@ -159,14 +151,14 @@ const CodeEditor = ({
         console.log(`📍 Cursor ${userId}: fileId=${data.fileId}, matches=${matches}, readOnly=${readOnly}, shouldShow=${shouldShow}`);
         return matches && shouldShow;
       });
-    
+
     console.log('📍 cursorsForFile after filter:', cursorsForFile);
-    
+
     // Create decorations for each remote cursor
     const decorations = cursorsForFile.flatMap(([userId, data]) => {
       const { userName, position, selection } = data;
       const decos = [];
-      
+
       if (position) {
         // Cursor line decoration - full line highlight
         decos.push({
@@ -178,7 +170,7 @@ const CodeEditor = ({
             stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges
           }
         });
-        
+
         // Cursor position indicator
         decos.push({
           range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column),
@@ -189,7 +181,7 @@ const CodeEditor = ({
           }
         });
       }
-      
+
       if (selection && (selection.startLineNumber !== selection.endLineNumber || selection.startColumn !== selection.endColumn)) {
         // Selection highlight
         decos.push({
@@ -205,10 +197,10 @@ const CodeEditor = ({
           }
         });
       }
-      
+
       return decos;
     });
-    
+
     // Apply decorations
     decorationsRef.current = editor.deltaDecorations(decorationsRef.current, decorations);
 
@@ -217,31 +209,31 @@ const CodeEditor = ({
       const labels = cursorsForFile.map(([userId, data]) => {
         const { userName, position } = data;
         if (!position) return null;
-        
+
         try {
           // Use Monaco's built-in method to get the exact pixel position
           const targetPosition = { lineNumber: position.lineNumber, column: position.column };
-          
+
           // Get the top position for the line
           const topForLine = editor.getTopForLineNumber(position.lineNumber);
           const scrollTop = editor.getScrollTop();
           const lineHeight = editor.getOption(monacoRef.current.editor.EditorOption.lineHeight);
-          
+
           // Calculate left position using column
           const layoutInfo = editor.getLayoutInfo();
           const contentLeft = layoutInfo.contentLeft; // accounts for line numbers, glyph margin, etc.
-          
+
           // Approximate character width (Monaco uses monospace font)
           const fontInfo = editor.getOption(monacoRef.current.editor.EditorOption.fontInfo);
           const charWidth = fontInfo.typicalHalfwidthCharacterWidth || 7.8;
-          
+
           // Calculate pixel positions
           const top = topForLine - scrollTop;
           const left = contentLeft + (position.column - 1) * charWidth;
-          
+
           // Only show if visible in viewport
           if (top < 0 || top > editor.getLayoutInfo().height) return null;
-          
+
           return {
             id: userId,
             userName,
@@ -253,20 +245,20 @@ const CodeEditor = ({
           return null;
         }
       }).filter(Boolean);
-      
+
       setCursorLabels(labels);
     };
-    
+
     updateCursorLabelPositions();
   }, [remoteCursors, activeFileId, showCursors]);
 
   // Update label positions on scroll
   useEffect(() => {
     if (!editorRef.current || !monacoRef.current || !showCursors) return;
-    
+
     const editor = editorRef.current;
     const monaco = monacoRef.current;
-    
+
     const updateLabels = () => {
       if (!showCursors) {
         setCursorLabels([]);
@@ -280,32 +272,32 @@ const CodeEditor = ({
           const shouldShow = readOnly || (currentUserId && userId.toString() !== currentUserId);
           return matches && shouldShow;
         });
-      
+
       const labels = cursorsForFile.map(([userId, data]) => {
         const { userName, position } = data;
         if (!position) return null;
-        
+
         try {
           // Get the top position for the line
           const topForLine = editor.getTopForLineNumber(position.lineNumber);
           const scrollTop = editor.getScrollTop();
           const lineHeight = editor.getOption(monaco.editor.EditorOption.lineHeight);
-          
+
           // Calculate left position using column
           const layoutInfo = editor.getLayoutInfo();
           const contentLeft = layoutInfo.contentLeft;
-          
+
           // Get character width
           const fontInfo = editor.getOption(monaco.editor.EditorOption.fontInfo);
           const charWidth = fontInfo.typicalHalfwidthCharacterWidth || 7.8;
-          
+
           // Calculate pixel positions
           const top = topForLine - scrollTop;
           const left = contentLeft + (position.column - 1) * charWidth;
-          
+
           // Only show if visible in viewport
           if (top < 0 || top > layoutInfo.height) return null;
-          
+
           return {
             id: userId,
             userName,
@@ -316,16 +308,16 @@ const CodeEditor = ({
           return null;
         }
       }).filter(Boolean);
-      
+
       setCursorLabels(labels);
     };
-    
+
     const scrollDisposable = editor.onDidScrollChange(updateLabels);
     const layoutDisposable = editor.onDidLayoutChange(updateLabels);
-    
+
     // Initial update
     updateLabels();
-    
+
     return () => {
       scrollDisposable.dispose();
       layoutDisposable.dispose();
@@ -382,37 +374,37 @@ const CodeEditor = ({
           // Comments
           [/\/\/.*$/, 'comment'],
           [/\/\*[\s\S]*?\*\//, 'comment'],
-          
+
           // Strings
           [/"([^"\\]|\\.)*"/, 'string'],
           [/'([^'\\]|\\.)*'/, 'string'],
           [/`/, { token: 'string', next: '@template' }],
-          
+
           // Keywords
           [/\b(import|export|default|from|as|const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|try|catch|finally|throw|new|typeof|instanceof|in|of|class|extends|super|this|static|async|await|yield|null|undefined|true|false)\b/, 'keyword'],
-          
+
           // React Hooks
           [/\b(useState|useEffect|useRef|useContext|useCallback|useMemo|useReducer|Fragment|React|ReactDOM)\b/, 'keyword.react'],
-          
+
           // Function calls
           [/\b([a-zA-Z_]\w*)\s*(?=\()/, 'function.call'],
-          
+
           // Components (capitalized)
           [/\b([A-Z]\w*)\s*(?=[({]|<)/, 'identifier.component'],
-          
+
           // Numbers
           [/\b\d+(\.\d+)?\b/, 'number'],
-          
+
           // Brackets
           [/[{}]/, 'bracket.curly'],
           [/[\[\]]/, 'bracket.square'],
           [/[()]/, 'bracket.round'],
-          
+
           // Operators
           [/[+\-*/%=<>!&|^~?:;]/, 'operator'],
           [/=>/, 'operator.arrow'],
           [/\.\.\./, 'operator.spread'],
-          
+
           // Whitespace
           [/\s+/, 'white'],
         ],
@@ -437,7 +429,7 @@ const CodeEditor = ({
         const lineContent = model.getLineContent(position.lineNumber);
         const beforeCursor = lineContent.substring(0, position.column);
         const tagMatch = beforeCursor.match(/<(\w*)$/) || beforeCursor.match(/(\b[a-z]{1,20})$/);
-        
+
         if (tagMatch) {
           const currentWord = tagMatch[1] || '';
           const htmlElements = [
@@ -461,7 +453,7 @@ const CodeEditor = ({
             { name: 'main', snippet: '<main>$0</main>' },
             { name: 'section', snippet: '<section>$0</section>' },
           ];
-          
+
           return {
             suggestions: htmlElements
               .filter(el => el.name.startsWith(currentWord.toLowerCase()))
@@ -485,9 +477,9 @@ const CodeEditor = ({
         const lineContent = model.getLineContent(position.lineNumber);
         const beforeCursor = lineContent.substring(0, position.column);
         const word = beforeCursor.match(/[\w]+$/)?.[0] || '';
-        
+
         if (word.length === 0) return { suggestions: [] };
-        
+
         const items = [
           { label: 'useState', detail: 'React Hook', snippet: 'useState($1)' },
           { label: 'useEffect', detail: 'React Hook', snippet: 'useEffect(() => {\n  $1\n}, [])' },
@@ -498,7 +490,7 @@ const CodeEditor = ({
           { label: 'console.log', detail: 'Log to console', snippet: 'console.log($1)' },
           { label: 'console.error', detail: 'Log error', snippet: 'console.error($1)' },
         ];
-        
+
         return {
           suggestions: items
             .filter(item => item.label.toLowerCase().includes(word.toLowerCase()))
@@ -572,20 +564,20 @@ const CodeEditor = ({
   // Listen for incoming code changes from other users
   useEffect(() => {
     if (!activeFileId || !editorRef.current) return;
-    
+
     // Find changes for the current file
     const changes = pendingChanges.filter(c => c.fileId === activeFileId);
     if (changes.length === 0) return;
-    
+
     // Apply the latest change
     const latestChange = changes[changes.length - 1];
     const currentContent = getFileContent(activeFileId);
-    
+
     // Only update if content is different (avoid infinite loop)
     if (latestChange.content !== currentContent) {
       updateFileContent(activeFileId, latestChange.content);
     }
-    
+
     // Mark changes as consumed
     consumePendingChanges(activeFileId);
   }, [pendingChanges, activeFileId, getFileContent, updateFileContent, consumePendingChanges]);
@@ -599,35 +591,6 @@ const CodeEditor = ({
     e.stopPropagation();
     closeFile(id);
   };
-
-  // --- TERMINAL RESIZE LOGIC ---
-  const startResizing = React.useCallback((e) => {
-    e.preventDefault();
-    setIsResizing(true);
-  }, []);
-
-  const stopResizing = React.useCallback(() => {
-    setIsResizing(false);
-  }, []);
-
-  const resize = React.useCallback((e) => {
-    if (isResizing) {
-      const newHeight = window.innerHeight - e.clientY;
-      if (newHeight >= 32 && newHeight < window.innerHeight * 0.8) {
-        setTerminalHeight(newHeight);
-        if (!terminalOpen && newHeight > 40) setTerminalOpen(true);
-      }
-    }
-  }, [isResizing, terminalOpen]);
-
-  useEffect(() => {
-    window.addEventListener("mousemove", resize);
-    window.addEventListener("mouseup", stopResizing);
-    return () => {
-      window.removeEventListener("mousemove", resize);
-      window.removeEventListener("mouseup", stopResizing);
-    };
-  }, [resize, stopResizing]);
 
   // Build breadcrumb path
   const getBreadcrumbs = () => {
@@ -761,7 +724,7 @@ const CodeEditor = ({
                 }}
               />
             </div>
-            
+
             {/* Floating Remote Cursor Labels - positioned relative to editor */}
             {showCursors && cursorLabels.map((label) => (
               <div
@@ -789,100 +752,6 @@ const CodeEditor = ({
           </div>
         )}
       </div>
-
-      {/* 4. TERMINAL / BOTTOM PANEL (Resizable) */}
-      <div
-        className="border-t border-indigo-500/20 bg-zinc-900/80 flex flex-col relative shrink-0"
-        style={{ height: terminalOpen ? terminalHeight + 'px' : '32px' }}
-      >
-        {/* Resizer Handle */}
-        <div
-          className="absolute -top-1 left-0 right-0 h-2 bg-transparent cursor-ns-resize z-20 hover:bg-indigo-600/30 transition-colors"
-          onMouseDown={startResizing}
-        ></div>
-
-        {/* Panel Header */}
-        <div className="h-8 flex items-center justify-between px-4 bg-zinc-900/80 border-b border-indigo-500/20 select-none shrink-0">
-          <div className="flex items-center gap-6 text-xs font-medium uppercase tracking-wide">
-            <button
-              className={`h-full border-b-2 px-1 ${activeTab === 0 ? 'text-white border-indigo-500' : 'text-zinc-500 border-transparent hover:text-zinc-300'}`}
-              onClick={() => { setActiveTab(0); setTerminalOpen(true); }}
-            >
-              Terminal
-            </button>
-            <button
-              className={`h-full border-b-2 px-1 ${activeTab === 1 ? 'text-white border-indigo-500' : 'text-zinc-500 border-transparent hover:text-zinc-300'}`}
-              onClick={() => { setActiveTab(1); setTerminalOpen(true); }}
-            >
-              Output
-            </button>
-            <button
-              className={`h-full border-b-2 px-1 flex items-center gap-1 ${activeTab === 2 ? 'text-white border-indigo-500' : 'text-zinc-500 border-transparent hover:text-zinc-300'}`}
-              onClick={() => { setActiveTab(2); setTerminalOpen(true); }}
-            >
-              Problems <span className="bg-green-500/20 text-green-400 px-1.5 rounded-full text-[10px]">0</span>
-            </button>
-          </div>
-
-          <div className="flex items-center gap-3 text-zinc-400 hover:text-zinc-300 transition-colors">
-            <Plus className="w-3.5 h-3.5 cursor-pointer hover:text-white" />
-            <Trash2 className="w-3.5 h-3.5 cursor-pointer hover:text-white" />
-            {terminalOpen ? (
-              <Minimize2
-                className="w-3.5 h-3.5 cursor-pointer hover:text-white"
-                onClick={() => setTerminalOpen(false)}
-              />
-            ) : (
-              <Maximize2
-                className="w-3.5 h-3.5 cursor-pointer hover:text-white"
-                onClick={() => setTerminalOpen(true)}
-              />
-            )}
-            <X
-              className="w-3.5 h-3.5 cursor-pointer hover:text-white"
-              onClick={() => setTerminalOpen(false)}
-            />
-          </div>
-        </div>
-
-        {/* Panel Content */}
-        {terminalOpen && (
-          <div className="flex-1 p-3 font-mono text-xs overflow-y-auto custom-scrollbar bg-zinc-950/50">
-            {activeTab === 0 && (
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-green-400">user@codesync</span>
-                  <span className="text-pink-400">MINGW64</span>
-                  <span className="text-yellow-400">~/My_Project</span>
-                  <span className="text-indigo-400">(main)</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-zinc-400">$</span>
-                  <span className="text-white">Ready</span>
-                </div>
-                <br />
-                <div className="flex items-center gap-2 animate-pulse">
-                  <span className="text-zinc-400">$</span>
-                  <span className="w-2 h-4 bg-zinc-400 block"></span>
-                </div>
-              </div>
-            )}
-
-            {activeTab === 1 && (
-              <div className="text-zinc-400">
-                <p>No output yet.</p>
-              </div>
-            )}
-
-            {activeTab === 2 && (
-              <div className="text-zinc-400">
-                <p>No problems found.</p>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
     </div>
   );
 };

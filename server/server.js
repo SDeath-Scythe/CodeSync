@@ -5,14 +5,10 @@ import bcrypt from 'bcryptjs';
 import { config } from 'dotenv';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import { createRequire } from 'module';
+import * as terminalService from './services/terminalService.js';
 
 // Load environment variables before Prisma
 config();
-
-// Import CommonJS terminal service
-const require = createRequire(import.meta.url);
-const terminalService = require('./services/terminalService.js');
 
 // Log the database URL (masked for security)
 const dbUrl = process.env.DATABASE_URL;

@@ -4,10 +4,11 @@
  * Each session gets its own shell process with a working directory
  */
 
-const pty = require('node-pty');
-const os = require('os');
-const path = require('path');
-const fs = require('fs');
+import pty from 'node-pty';
+import os from 'os';
+import path from 'path';
+import fs from 'fs';
+import { spawn } from 'child_process';
 
 // Store active terminal sessions
 const terminals = new Map();
@@ -23,7 +24,7 @@ if (!fs.existsSync(WORKSPACE_BASE)) {
 /**
  * Get or create workspace directory for a session
  */
-function getWorkspaceDir(sessionCode, userId) {
+export function getWorkspaceDir(sessionCode, userId) {
         const workspaceId = `${sessionCode}-${userId}`;
         const workspacePath = path.join(WORKSPACE_BASE, workspaceId);
 
@@ -37,7 +38,7 @@ function getWorkspaceDir(sessionCode, userId) {
 /**
  * Sync virtual files to the workspace directory
  */
-function syncFilesToWorkspace(workspacePath, files, fileContents) {
+export function syncFilesToWorkspace(workspacePath, files, fileContents) {
         // files is the tree structure, fileContents is { fileId: content }
 
         const syncItem = (item, currentPath) => {
@@ -70,7 +71,7 @@ function syncFilesToWorkspace(workspacePath, files, fileContents) {
 /**
  * Create a new terminal session
  */
-function createTerminal(sessionCode, userId, cols = 80, rows = 24) {
+export function createTerminal(sessionCode, userId, cols = 80, rows = 24) {
         const terminalId = `${sessionCode}-${userId}`;
 
         // Kill existing terminal if any
@@ -122,7 +123,7 @@ function createTerminal(sessionCode, userId, cols = 80, rows = 24) {
 /**
  * Get an existing terminal
  */
-function getTerminal(sessionCode, userId) {
+export function getTerminal(sessionCode, userId) {
         const terminalId = `${sessionCode}-${userId}`;
         return terminals.get(terminalId);
 }
@@ -130,7 +131,7 @@ function getTerminal(sessionCode, userId) {
 /**
  * Write data to terminal
  */
-function writeToTerminal(sessionCode, userId, data) {
+export function writeToTerminal(sessionCode, userId, data) {
         const terminal = getTerminal(sessionCode, userId);
         if (terminal) {
                 terminal.pty.write(data);
@@ -142,7 +143,7 @@ function writeToTerminal(sessionCode, userId, data) {
 /**
  * Resize terminal
  */
-function resizeTerminal(sessionCode, userId, cols, rows) {
+export function resizeTerminal(sessionCode, userId, cols, rows) {
         const terminal = getTerminal(sessionCode, userId);
         if (terminal) {
                 terminal.pty.resize(cols, rows);
@@ -154,7 +155,7 @@ function resizeTerminal(sessionCode, userId, cols, rows) {
 /**
  * Kill a terminal session
  */
-function killTerminal(sessionCode, userId) {
+export function killTerminal(sessionCode, userId) {
         const terminalId = `${sessionCode}-${userId}`;
         const terminal = terminals.get(terminalId);
 
@@ -174,9 +175,8 @@ function killTerminal(sessionCode, userId) {
 /**
  * Execute a single command and return output (for "Run" button)
  */
-function executeCode(workspacePath, command) {
+export function executeCode(workspacePath, command) {
         return new Promise((resolve, reject) => {
-                const { spawn } = require('child_process');
                 const startTime = Date.now();
 
                 // Parse command into program and args
@@ -229,7 +229,7 @@ function executeCode(workspacePath, command) {
 /**
  * Clean up old workspaces (call periodically)
  */
-function cleanupOldWorkspaces(maxAgeMs = 24 * 60 * 60 * 1000) {
+export function cleanupOldWorkspaces(maxAgeMs = 24 * 60 * 60 * 1000) {
         try {
                 const dirs = fs.readdirSync(WORKSPACE_BASE);
                 const now = Date.now();
@@ -248,15 +248,4 @@ function cleanupOldWorkspaces(maxAgeMs = 24 * 60 * 60 * 1000) {
         }
 }
 
-module.exports = {
-        createTerminal,
-        getTerminal,
-        writeToTerminal,
-        resizeTerminal,
-        killTerminal,
-        executeCode,
-        syncFilesToWorkspace,
-        getWorkspaceDir,
-        cleanupOldWorkspaces,
-        WORKSPACE_BASE
-};
+export { WORKSPACE_BASE };
