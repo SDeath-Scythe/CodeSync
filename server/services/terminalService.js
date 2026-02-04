@@ -1,7 +1,7 @@
 /**
  * Terminal Service
  * Manages persistent terminal sessions using node-pty
- * Each session gets its own shell process with a working directory
+ * SECURITY: Uses file-based sandbox script for reliable path restriction
  */
 
 import pty from 'node-pty';
@@ -22,6 +22,121 @@ if (!fs.existsSync(WORKSPACE_BASE)) {
 }
 
 /**
+ * Create a sanitized environment for the shell
+ */
+function createSafeEnv(workspacePath) {
+        const safeEnv = { ...process.env };
+
+        // Remove sensitive env vars
+        const sensitiveVars = [
+                'DATABASE_URL', 'JWT_SECRET', 'API_KEY', 'SECRET_KEY',
+                'AWS_SECRET_ACCESS_KEY', 'GITHUB_CLIENT_SECRET', 'PRIVATE_KEY', 'PASSWORD'
+        ];
+
+        for (const key of Object.keys(safeEnv)) {
+                if (sensitiveVars.some(s => key.toUpperCase().includes(s))) {
+                        delete safeEnv[key];
+                }
+        }
+
+        safeEnv.TERM = 'xterm-256color';
+        safeEnv.COLORTERM = 'truecolor';
+        safeEnv.CODESYNC_WORKSPACE = workspacePath;
+
+        return safeEnv;
+}
+
+/**
+ * Create sandbox profile script file in workspace
+ */
+function createSandboxProfile(workspacePath) {
+        const profilePath = path.join(workspacePath, '.codesync_profile.ps1');
+
+        // Write the sandbox profile to a file (avoids escaping issues)
+        const profileContent = `
+# CodeSync Sandbox Profile
+# This file restricts navigation outside the workspace
+
+$script:WorkspaceRoot = (Get-Item -LiteralPath $PWD.Path).FullName
+
+function Test-InsideWorkspace {
+    param([string]$TestPath)
+    
+    if (-not $TestPath) { return $true }
+    
+    try {
+        # Handle relative paths
+        if (-not [System.IO.Path]::IsPathRooted($TestPath)) {
+            $TestPath = Join-Path $PWD.Path $TestPath
+        }
+        
+        # Resolve to full path
+        $resolved = [System.IO.Path]::GetFullPath($TestPath)
+        
+        # Get actual path if it exists (handles short names)
+        if (Test-Path -LiteralPath $resolved -ErrorAction SilentlyContinue) {
+            $resolved = (Get-Item -LiteralPath $resolved).FullName
+        }
+        
+        # Check if inside workspace
+        return $resolved.StartsWith($script:WorkspaceRoot, [System.StringComparison]::OrdinalIgnoreCase)
+    } catch {
+        return $false
+    }
+}
+
+# Override Set-Location
+function Set-Location {
+    [CmdletBinding()]
+    param(
+        [Parameter(Position=0, ValueFromPipeline=$true)]
+        [string]$Path
+    )
+    
+    if (-not $Path) {
+        Microsoft.PowerShell.Management\\Set-Location $script:WorkspaceRoot
+        return
+    }
+    
+    if (Test-InsideWorkspace $Path) {
+        $target = if ([System.IO.Path]::IsPathRooted($Path)) { $Path } else { Join-Path $PWD.Path $Path }
+        $resolved = [System.IO.Path]::GetFullPath($target)
+        
+        if (Test-Path -LiteralPath $resolved) {
+            Microsoft.PowerShell.Management\\Set-Location $resolved
+        } else {
+            Write-Host "Path not found: $Path" -ForegroundColor Red
+        }
+    } else {
+        Write-Host "Access denied: Cannot navigate outside project folder" -ForegroundColor Red
+    }
+}
+
+# Custom prompt
+function prompt {
+    $current = $PWD.Path
+    $relative = $current
+    if ($current.StartsWith($script:WorkspaceRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $relative = $current.Substring($script:WorkspaceRoot.Length)
+        if (-not $relative) { $relative = "\\" }
+    }
+    Write-Host "[CodeSync]" -NoNewline -ForegroundColor Cyan
+    Write-Host " .$relative" -NoNewline -ForegroundColor Yellow
+    return " > "
+}
+
+# Welcome
+Write-Host ""
+Write-Host "[Sandbox Active] Project folder only" -ForegroundColor Green
+Write-Host "Workspace: $script:WorkspaceRoot" -ForegroundColor DarkGray
+Write-Host ""
+`;
+
+        fs.writeFileSync(profilePath, profileContent, 'utf-8');
+        return profilePath;
+}
+
+/**
  * Get or create workspace directory for a session
  */
 export function getWorkspaceDir(sessionCode, userId) {
@@ -39,28 +154,22 @@ export function getWorkspaceDir(sessionCode, userId) {
  * Sync virtual files to the workspace directory
  */
 export function syncFilesToWorkspace(workspacePath, files, fileContents) {
-        // files is the tree structure, fileContents is { fileId: content }
-
         const syncItem = (item, currentPath) => {
                 const itemPath = path.join(currentPath, item.name);
 
                 if (item.type === 'folder') {
-                        // Create directory
                         if (!fs.existsSync(itemPath)) {
                                 fs.mkdirSync(itemPath, { recursive: true });
                         }
-                        // Sync children
                         if (item.children) {
                                 item.children.forEach(child => syncItem(child, itemPath));
                         }
                 } else {
-                        // Write file content
                         const content = fileContents[item.id] || '';
                         fs.writeFileSync(itemPath, content, 'utf-8');
                 }
         };
 
-        // Sync each root item
         if (Array.isArray(files)) {
                 files.forEach(item => syncItem(item, workspacePath));
         }
@@ -69,7 +178,7 @@ export function syncFilesToWorkspace(workspacePath, files, fileContents) {
 }
 
 /**
- * Create a new terminal session
+ * Create a new terminal session with sandbox
  */
 export function createTerminal(sessionCode, userId, cols = 80, rows = 24) {
         const terminalId = `${sessionCode}-${userId}`;
@@ -79,29 +188,38 @@ export function createTerminal(sessionCode, userId, cols = 80, rows = 24) {
                 const existing = terminals.get(terminalId);
                 try {
                         existing.pty.kill();
-                } catch (e) {
-                        // Ignore kill errors
-                }
+                } catch (e) { }
         }
 
-        // Get workspace directory
         const workspacePath = getWorkspaceDir(sessionCode, userId);
+        const isWindows = os.platform() === 'win32';
 
-        // Determine shell based on OS
-        const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
-        const shellArgs = os.platform() === 'win32' ? [] : [];
+        let shell, shellArgs;
 
-        // Create PTY process
+        if (isWindows) {
+                // Create sandbox profile file
+                const profilePath = createSandboxProfile(workspacePath);
+
+                shell = 'powershell.exe';
+                // Load the profile file instead of inline script
+                shellArgs = [
+                        '-NoProfile',
+                        '-NoLogo',
+                        '-NoExit',
+                        '-ExecutionPolicy', 'Bypass',
+                        '-File', profilePath
+                ];
+        } else {
+                shell = 'bash';
+                shellArgs = ['--restricted'];
+        }
+
         const ptyProcess = pty.spawn(shell, shellArgs, {
                 name: 'xterm-256color',
-                cols: cols,
-                rows: rows,
+                cols,
+                rows,
                 cwd: workspacePath,
-                env: {
-                        ...process.env,
-                        TERM: 'xterm-256color',
-                        COLORTERM: 'truecolor'
-                }
+                env: createSafeEnv(workspacePath)
         });
 
         const terminal = {
@@ -114,8 +232,9 @@ export function createTerminal(sessionCode, userId, cols = 80, rows = 24) {
         };
 
         terminals.set(terminalId, terminal);
-
-        console.log(`🖥️ Terminal created: ${terminalId} in ${workspacePath}`);
+        console.log(`🖥️ Terminal created: ${terminalId}`);
+        console.log(`📁 Workspace: ${workspacePath}`);
+        console.log(`🔒 Sandbox profile loaded`);
 
         return terminal;
 }
@@ -162,9 +281,7 @@ export function killTerminal(sessionCode, userId) {
         if (terminal) {
                 try {
                         terminal.pty.kill();
-                } catch (e) {
-                        // Ignore kill errors
-                }
+                } catch (e) { }
                 terminals.delete(terminalId);
                 console.log(`🖥️ Terminal killed: ${terminalId}`);
                 return true;
@@ -173,36 +290,26 @@ export function killTerminal(sessionCode, userId) {
 }
 
 /**
- * Execute a single command and return output (for "Run" button)
+ * Execute a single command
  */
 export function executeCode(workspacePath, command) {
         return new Promise((resolve, reject) => {
                 const startTime = Date.now();
-
-                // Parse command into program and args
                 const parts = command.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
                 const program = parts[0];
-                const args = parts.slice(1).map(arg => arg.replace(/^"|"$/g, '')); // Remove quotes
+                const args = parts.slice(1).map(arg => arg.replace(/^"|"$/g, ''));
 
                 const child = spawn(program, args, {
                         cwd: workspacePath,
                         shell: true,
-                        env: {
-                                ...process.env,
-                                TERM: 'xterm-256color'
-                        }
+                        env: createSafeEnv(workspacePath)
                 });
 
                 let stdout = '';
                 let stderr = '';
 
-                child.stdout.on('data', data => {
-                        stdout += data.toString();
-                });
-
-                child.stderr.on('data', data => {
-                        stderr += data.toString();
-                });
+                child.stdout.on('data', data => { stdout += data.toString(); });
+                child.stderr.on('data', data => { stderr += data.toString(); });
 
                 child.on('close', code => {
                         resolve({
@@ -214,11 +321,8 @@ export function executeCode(workspacePath, command) {
                         });
                 });
 
-                child.on('error', err => {
-                        reject(err);
-                });
+                child.on('error', reject);
 
-                // Timeout after 30 seconds
                 setTimeout(() => {
                         child.kill();
                         reject(new Error('Execution timed out (30s limit)'));
@@ -227,7 +331,7 @@ export function executeCode(workspacePath, command) {
 }
 
 /**
- * Clean up old workspaces (call periodically)
+ * Clean up old workspaces
  */
 export function cleanupOldWorkspaces(maxAgeMs = 24 * 60 * 60 * 1000) {
         try {
@@ -240,7 +344,7 @@ export function cleanupOldWorkspaces(maxAgeMs = 24 * 60 * 60 * 1000) {
 
                         if (now - stats.mtimeMs > maxAgeMs) {
                                 fs.rmSync(dirPath, { recursive: true, force: true });
-                                console.log(`🧹 Cleaned up old workspace: ${dir}`);
+                                console.log(`🧹 Cleaned up: ${dir}`);
                         }
                 });
         } catch (e) {
