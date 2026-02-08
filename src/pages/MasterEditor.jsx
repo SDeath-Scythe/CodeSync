@@ -55,7 +55,7 @@ const PanelHeader = ({ title, onClose, children, className = '' }) => (
 function MasterEditorContent({ sessionInfo }) {
         const navigate = useNavigate();
         const { joinSession, currentSession, loadSessionFromDb, socket } = useCollaboration();
-        const { loadFromSession, fileStructure, fileContents } = useFileSystem();
+        const { loadFromSession, fileStructure, fileContents, activeFileId, findItemById } = useFileSystem();
         const { isSaving, lastSaved } = useSaveSession();
 
         const [showSidebar, setShowSidebar] = useState(true);
@@ -66,6 +66,11 @@ function MasterEditorContent({ sessionInfo }) {
         const [classroomCollapsed, setClassroomCollapsed] = useState(false);
         const [fullscreenMode, setFullscreenMode] = useState(null);
         const [terminalHeight, setTerminalHeight] = useState(250);
+        const [pendingRunCommand, setPendingRunCommand] = useState(null);
+        const [autoStartTerminal, setAutoStartTerminal] = useState(false);
+
+        // Terminal ref for programmatic control
+        const terminalRef = useRef(null);
 
         // Loading states for files
         const [isLoadingFiles, setIsLoadingFiles] = useState(false);
@@ -158,6 +163,76 @@ function MasterEditorContent({ sessionInfo }) {
                 };
         }, [fileStructure, fileContents]);
 
+        // Helper to get full file path from file structure
+        const buildFilePath = useCallback((items, targetId, currentPath = '') => {
+                for (const item of items) {
+                        const itemPath = currentPath ? `${currentPath}/${item.name}` : item.name;
+                        if (item.id === targetId) {
+                                return itemPath;
+                        }
+                        if (item.type === 'folder' && item.children) {
+                                const found = buildFilePath(item.children, targetId, itemPath);
+                                if (found) return found;
+                        }
+                }
+                return null;
+        }, []);
+
+        // Handle Run Code - syncs files and runs current file in terminal
+        const handleRunCode = useCallback(() => {
+                if (!activeFileId || !socket) return;
+
+                // Get active file info
+                const activeFile = findItemById(fileStructure, activeFileId);
+                if (!activeFile || activeFile.type === 'folder') return;
+
+                // Get full file path
+                const filePath = buildFilePath(fileStructure, activeFileId) || activeFile.name;
+                console.log('🚀 Running file:', filePath);
+
+                // Determine run command based on file extension
+                const ext = activeFile.name.split('.').pop()?.toLowerCase();
+                let runCommand = '';
+
+                const commandMap = {
+                        'js': `node "${filePath}"`,
+                        'jsx': `node "${filePath}"`,
+                        'ts': `npx ts-node "${filePath}"`,
+                        'tsx': `npx ts-node "${filePath}"`,
+                        'py': `python "${filePath}"`,
+                        'java': `java "${filePath.replace('.java', '')}"`,
+                        'cpp': `g++ "${filePath}" -o out && ./out`,
+                        'c': `gcc "${filePath}" -o out && ./out`,
+                        'go': `go run "${filePath}"`,
+                        'rs': `rustc "${filePath}" && ./${activeFile.name.replace('.rs', '')}`,
+                        'rb': `ruby "${filePath}"`,
+                        'php': `php "${filePath}"`,
+                        'sh': `bash "${filePath}"`,
+                };
+
+                runCommand = commandMap[ext] || '';
+
+                if (!runCommand) {
+                        console.warn('No run command for extension:', ext);
+                        return;
+                }
+
+                // Set pending command and auto-start flag
+                setPendingRunCommand(runCommand);
+                setAutoStartTerminal(true);
+
+                // Show terminal if hidden
+                if (!showTerminal) {
+                        setShowTerminal(true);
+                }
+
+                // Clear the command after a delay (so it doesn't run again)
+                setTimeout(() => {
+                        setPendingRunCommand(null);
+                        setAutoStartTerminal(false);
+                }, 3000);
+        }, [activeFileId, socket, fileStructure, findItemById, buildFilePath, showTerminal]);
+
         // Determine what to show based on fullscreen mode
         const showSidebarPanel = fullscreenMode === null && showSidebar;
         const showCodeEditor = fullscreenMode !== 'classroom';
@@ -239,6 +314,7 @@ function MasterEditorContent({ sessionInfo }) {
                                                                 onToggleCursors={toggleCursors}
                                                                 onToggleTerminal={toggleTerminal}
                                                                 showTerminal={showTerminal}
+                                                                onRunCode={handleRunCode}
                                                         />
                                                 </div>
 
@@ -249,10 +325,13 @@ function MasterEditorContent({ sessionInfo }) {
                                                                 style={{ height: `${terminalHeight}px` }}
                                                         >
                                                                 <Terminal
+                                                                        ref={terminalRef}
                                                                         socket={socket}
                                                                         sessionCode={currentSession}
                                                                         onSync={getFilesForSync}
                                                                         className="h-full"
+                                                                        autoStart={autoStartTerminal}
+                                                                        runCommand={pendingRunCommand}
                                                                 />
                                                         </div>
                                                 )}

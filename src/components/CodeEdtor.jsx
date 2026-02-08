@@ -26,7 +26,8 @@ const CodeEditor = ({
   onToggleFullscreen,
   readOnly = false,
   showCursors = true,
-  onToggleCursors
+  onToggleCursors,
+  onRunCode
 }) => {
   const {
     openFiles,
@@ -541,6 +542,18 @@ const CodeEditor = ({
         saveFile(activeFileId);
       }
     });
+
+    // Run code shortcut (Ctrl+Enter)
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
+      if (onRunCode) {
+        onRunCode();
+      }
+    });
+
+    // Toggle line comment shortcut (Ctrl+/)
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Slash, () => {
+      editor.trigger('keyboard', 'editor.action.commentLine', null);
+    });
   };
 
   // Handle content change - send to other users in real-time
@@ -646,7 +659,15 @@ const CodeEditor = ({
               <Users className="w-3.5 h-3.5" />
             </button>
           )}
-          <Play className="w-4 h-4 hover:text-green-400 cursor-pointer" title="Run Code" />
+          <button
+            onClick={onRunCode}
+            disabled={!activeFileId}
+            className={`p-1.5 rounded flex items-center gap-1.5 transition-all ${activeFileId ? 'bg-green-600/20 hover:bg-green-500/30 text-green-400 border border-green-500/30' : 'opacity-40 cursor-not-allowed text-zinc-500'}`}
+            title="Run Code (Ctrl+Enter)"
+          >
+            <Play className="w-3.5 h-3.5" />
+            <span className="text-xs font-medium">Run</span>
+          </button>
           <Split className="w-4 h-4 hover:text-white cursor-pointer" title="Split Editor" />
           {onToggleFullscreen && (
             <button
@@ -695,32 +716,96 @@ const CodeEditor = ({
                 onMount={handleEditorDidMount}
                 path={'file:///' + activeFile.name}
                 options={{
-                  minimap: { enabled: false },
+                  // VS Code-like features
+                  minimap: { enabled: true, size: 'proportional', showSlider: 'mouseover' },
                   fontSize: 14,
                   lineNumbers: 'on',
-                  roundedSelection: false,
-                  scrollBeyondLastLine: false,
+                  roundedSelection: true,
+                  scrollBeyondLastLine: true,
                   readOnly: readOnly,
                   automaticLayout: true,
-                  fontFamily: "'Fira Code', 'Droid Sans Mono', 'monospace'",
+                  fontFamily: "'Fira Code', 'Cascadia Code', 'Consolas', monospace",
+                  fontLigatures: true,
                   cursorBlinking: 'smooth',
+                  cursorSmoothCaretAnimation: 'on',
                   smoothScrolling: true,
                   glyphMargin: true,
+
+                  // Bracket features
+                  bracketPairColorization: { enabled: true },
+                  guides: {
+                    bracketPairs: true,
+                    bracketPairsHorizontal: true,
+                    indentation: true,
+                    highlightActiveIndentation: true
+                  },
+                  matchBrackets: 'always',
+
+                  // Code folding
+                  folding: true,
+                  foldingHighlight: true,
+                  foldingStrategy: 'auto',
+                  showFoldingControls: 'mouseover',
+
+                  // Find & Replace
+                  find: {
+                    addExtraSpaceOnTop: false,
+                    autoFindInSelection: 'multiline',
+                    seedSearchStringFromSelection: 'always'
+                  },
+
+                  // Suggestions & IntelliSense
                   inlineSuggest: { enabled: !readOnly },
                   quickSuggestions: readOnly ? false : {
                     other: true,
-                    comments: false,
+                    comments: true,
                     strings: true,
                   },
                   suggest: {
                     localityBonus: true,
                     shareSuggestSelections: true,
+                    showKeywords: true,
+                    showSnippets: true,
+                    showFunctions: true,
+                    showVariables: true,
+                    showClasses: true,
+                    preview: true,
+                    previewMode: 'subwordSmart'
                   },
                   acceptSuggestionOnCommitCharacter: !readOnly,
                   acceptSuggestionOnEnter: readOnly ? 'off' : 'on',
+
+                  // Formatting
                   tabSize: 2,
                   useTabStops: true,
-                  wordBasedSuggestions: readOnly ? 'off' : 'currentDocument',
+                  formatOnPaste: true,
+                  formatOnType: true,
+                  autoIndent: 'full',
+
+                  // Word wrap
+                  wordWrap: 'on',
+                  wordWrapColumn: 120,
+                  wrappingIndent: 'indent',
+
+                  // Multi-cursor
+                  multiCursorModifier: 'alt',
+
+                  // Other enhancements
+                  renderWhitespace: 'selection',
+                  renderLineHighlight: 'all',
+                  renderControlCharacters: true,
+                  scrollbar: {
+                    verticalScrollbarSize: 10,
+                    horizontalScrollbarSize: 10,
+                    useShadows: true,
+                    verticalHasArrows: false,
+                    horizontalHasArrows: false
+                  },
+                  wordBasedSuggestions: readOnly ? 'off' : 'allDocuments',
+                  linkedEditing: true,
+                  colorDecorators: true,
+                  mouseWheelZoom: true,
+                  stickyScroll: { enabled: true },
                 }}
               />
             </div>

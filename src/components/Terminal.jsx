@@ -1,24 +1,32 @@
-import React, { useEffect, useRef, useCallback, useState } from 'react';
+import React, { useEffect, useRef, useCallback, useState, forwardRef, useImperativeHandle } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 
 /**
  * Terminal Component
  * Interactive terminal using xterm.js with WebSocket connection to backend
+ * Use ref to access: start(), sync(), sendCommand(cmd), isConnected
  */
-const Terminal = ({
+const Terminal = forwardRef(({
         socket,
         sessionCode,
         onSync, // Function to get current files for syncing
         className = '',
-        onReady
-}) => {
+        onReady,
+        autoStart = false, // Auto-start terminal when mounted
+        runCommand = null // Command to run after terminal starts
+}, ref) => {
         const terminalRef = useRef(null);
         const xtermRef = useRef(null);
         const fitAddonRef = useRef(null);
         const [isConnected, setIsConnected] = useState(false);
         const [workspacePath, setWorkspacePath] = useState('');
+
+        // Refs to prevent duplicate operations
+        const isStartingRef = useRef(false);
+        const commandSentRef = useRef(false);
 
         // Initialize terminal
         useEffect(() => {
@@ -61,6 +69,15 @@ const Terminal = ({
                 // Create fit addon
                 const fitAddon = new FitAddon();
                 term.loadAddon(fitAddon);
+
+                // Create web links addon for Ctrl+Click on URLs
+                const webLinksAddon = new WebLinksAddon((event, uri) => {
+                        // Open link in new tab when Ctrl+Click
+                        if (event.ctrlKey || event.metaKey) {
+                                window.open(uri, '_blank');
+                        }
+                });
+                term.loadAddon(webLinksAddon);
 
                 // Open terminal in container
                 term.open(terminalRef.current);
@@ -176,24 +193,107 @@ const Terminal = ({
                 };
         }, [socket, isConnected]);
 
-        // Start terminal session
+        // Start terminal session - sync files first, then start
         const startTerminal = useCallback(() => {
-                if (!socket || !xtermRef.current) return;
+                // Prevent duplicate starts
+                if (isStartingRef.current || isConnected) {
+                        console.log('📟 startTerminal skipped (already starting or connected)');
+                        return;
+                }
+                isStartingRef.current = true;
+
+                console.log('📟 startTerminal called', { socket: !!socket, xterm: !!xtermRef.current, onSync: !!onSync });
+                if (!socket || !xtermRef.current) {
+                        isStartingRef.current = false;
+                        return;
+                }
 
                 const term = xtermRef.current;
 
-                // Sync files first
+                // If we have files to sync, do that first
                 if (onSync) {
+                        const syncData = onSync();
+                        console.log('📁 Syncing files:', {
+                                filesCount: syncData.files?.length,
+                                contentsCount: Object.keys(syncData.fileContents || {}).length,
+                                files: syncData.files
+                        });
+                        socket.emit('terminal-sync', { files: syncData.files, fileContents: syncData.fileContents });
+
+                        // Wait for sync confirmation, then start terminal
+                        const handleSynced = () => {
+                                console.log('✅ Sync confirmed, starting terminal');
+                                socket.off('terminal-synced', handleSynced);
+                                socket.emit('terminal-start', {
+                                        cols: term.cols,
+                                        rows: term.rows
+                                });
+                        };
+                        socket.on('terminal-synced', handleSynced);
+
+                        // Fallback: start anyway after 2 seconds
+                        setTimeout(() => {
+                                socket.off('terminal-synced', handleSynced);
+                                if (!isConnected) {
+                                        console.log('⏱️ Fallback: starting terminal after timeout');
+                                        socket.emit('terminal-start', {
+                                                cols: term.cols,
+                                                rows: term.rows
+                                        });
+                                }
+                        }, 2000);
+                } else {
+                        console.log('⚠️ No onSync, starting terminal directly');
+                        // No files to sync, just start
+                        socket.emit('terminal-start', {
+                                cols: term.cols,
+                                rows: term.rows
+                        });
+                }
+        }, [socket, onSync, isConnected]);
+
+        // Expose methods via ref
+        useImperativeHandle(ref, () => ({
+                start: startTerminal,
+                sync: () => {
+                        if (!socket || !onSync) return;
                         const { files, fileContents } = onSync();
                         socket.emit('terminal-sync', { files, fileContents });
-                }
+                },
+                sendCommand: (cmd) => {
+                        if (!socket || !isConnected) return;
+                        socket.emit('terminal-input', { data: cmd + '\r' });
+                },
+                isConnected: () => isConnected,
+                term: () => xtermRef.current
+        }), [startTerminal, socket, onSync, isConnected]);
 
-                // Start terminal
-                socket.emit('terminal-start', {
-                        cols: term.cols,
-                        rows: term.rows
-                });
-        }, [socket, onSync]);
+        // Handle runCommand after terminal starts
+        useEffect(() => {
+                if (isConnected && runCommand && !commandSentRef.current) {
+                        commandSentRef.current = true;
+                        // Wait longer for PowerShell sandbox to load, then send command
+                        const timer = setTimeout(() => {
+                                console.log('🚀 Sending command:', runCommand);
+                                socket.emit('terminal-input', { data: runCommand + '\r' });
+                        }, 1500);
+                        return () => clearTimeout(timer);
+                }
+        }, [isConnected, runCommand, socket]);
+
+        // Reset refs when runCommand changes
+        useEffect(() => {
+                commandSentRef.current = false;
+        }, [runCommand]);
+
+        // Auto-start if prop is set
+        useEffect(() => {
+                if (autoStart && socket && xtermRef.current && !isConnected) {
+                        // Small delay to ensure everything is mounted
+                        const timer = setTimeout(startTerminal, 100);
+                        return () => clearTimeout(timer);
+                }
+        }, [autoStart, socket, isConnected, startTerminal]);
 
         // Kill terminal session
         const killTerminal = useCallback(() => {
@@ -295,6 +395,6 @@ const Terminal = ({
                         />
                 </div>
         );
-};
+});
 
 export default Terminal;

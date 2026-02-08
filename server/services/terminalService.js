@@ -179,16 +179,20 @@ export function syncFilesToWorkspace(workspacePath, files, fileContents) {
 
 /**
  * Create a new terminal session with sandbox
+ * If a terminal already exists, return it instead of creating a new one
  */
 export function createTerminal(sessionCode, userId, cols = 80, rows = 24) {
         const terminalId = `${sessionCode}-${userId}`;
 
-        // Kill existing terminal if any
+        // Reuse existing terminal if it exists
         if (terminals.has(terminalId)) {
                 const existing = terminals.get(terminalId);
+                console.log(`🖥️ Reusing existing terminal: ${terminalId}`);
+                // Just resize it if needed
                 try {
-                        existing.pty.kill();
+                        existing.pty.resize(cols, rows);
                 } catch (e) { }
+                return existing;
         }
 
         const workspacePath = getWorkspaceDir(sessionCode, userId);

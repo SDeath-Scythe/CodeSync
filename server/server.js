@@ -1288,21 +1288,39 @@ io.on('connection', (socket) => {
         rows || 24
       );
 
-      // Set up data listener for this terminal
-      terminal.pty.onData((data) => {
-        socket.emit('terminal-data', { data });
-      });
+      // Check if we need to attach listeners (new terminal or socket changed)
+      const needsNewListeners = !terminal._socketId || terminal._socketId !== socket.id;
 
-      terminal.pty.onExit(({ exitCode }) => {
-        socket.emit('terminal-exit', { exitCode });
-      });
+      if (needsNewListeners) {
+        // Clean up old listeners if they exist
+        if (terminal._dataDispose) {
+          terminal._dataDispose.dispose();
+        }
+        if (terminal._exitDispose) {
+          terminal._exitDispose.dispose();
+        }
+
+        terminal._socketId = socket.id;
+
+        // Set up data listener for this terminal
+        terminal._dataDispose = terminal.pty.onData((data) => {
+          socket.emit('terminal-data', { data });
+        });
+
+        terminal._exitDispose = terminal.pty.onExit(({ exitCode }) => {
+          socket.emit('terminal-exit', { exitCode });
+        });
+
+        console.log(`🖥️ Terminal ${terminal._listenersAttached ? 'reconnected' : 'started'} for ${currentUser.name} in ${currentSession}`);
+        terminal._listenersAttached = true;
+      } else {
+        console.log(`🖥️ Terminal reused for ${currentUser.name} in ${currentSession}`);
+      }
 
       socket.emit('terminal-started', {
         message: 'Terminal started',
         workspacePath: terminal.workspacePath
       });
-
-      console.log(`🖥️ Terminal started for ${currentUser.name} in ${currentSession}`);
     } catch (error) {
       console.error('Terminal start error:', error);
       socket.emit('terminal-error', { message: error.message });
@@ -1334,9 +1352,19 @@ io.on('connection', (socket) => {
 
     try {
       const workspacePath = terminalService.getWorkspaceDir(currentSession, currentUser.id);
+
+      // Debug logging
+      console.log('📁 Syncing files to workspace:', workspacePath);
+      console.log('   Files structure:', JSON.stringify(files, null, 2));
+      console.log('   File contents keys:', Object.keys(fileContents || {}));
+
       terminalService.syncFilesToWorkspace(workspacePath, files || [], fileContents || {});
+
+      console.log('✅ Files synced successfully');
+
       socket.emit('terminal-synced', { workspacePath });
     } catch (error) {
+      console.error('Terminal sync error:', error);
       socket.emit('terminal-error', { message: error.message });
     }
   });
