@@ -356,4 +356,172 @@ export function cleanupOldWorkspaces(maxAgeMs = 24 * 60 * 60 * 1000) {
         }
 }
 
+/**
+ * Read workspace directory and convert to file structure format
+ * Returns { files: [], fileContents: {} } matching the app's format
+ */
+export function readWorkspaceToFileStructure(workspacePath, options = {}) {
+        const {
+                maxDepth = 10,
+                maxFiles = 200,
+                maxFileSize = 100 * 1024, // 100KB per file max
+                ignoredPatterns = [
+                        'node_modules',
+                        '.git',
+                        '.codesync_profile.ps1',
+                        'AppData',
+                        'Microsoft',
+                        '.cache',
+                        '__pycache__',
+                        '.next',
+                        'dist',
+                        'build',
+                        '.vscode',
+                        'coverage',
+                        '.env',
+                        '.DS_Store'
+                ]
+        } = options;
+
+        const files = [];
+        const fileContents = {};
+        let fileCount = 0;
+
+        // Helper to check if buffer is likely binary
+        const isBinary = (buffer) => {
+                // Check specifically for null bytes which break Postgres JSON
+                for (let i = 0; i < Math.min(buffer.length, 512); i++) {
+                        if (buffer[i] === 0) return true;
+                }
+                return false;
+        };
+
+        const getLanguageFromExt = (filename) => {
+                const ext = path.extname(filename).toLowerCase().slice(1);
+                const langMap = {
+                        'js': 'javascript',
+                        'jsx': 'javascript',
+                        'ts': 'typescript',
+                        'tsx': 'typescript',
+                        'py': 'python',
+                        'java': 'java',
+                        'cpp': 'cpp',
+                        'c': 'c',
+                        'cs': 'csharp',
+                        'go': 'go',
+                        'rs': 'rust',
+                        'rb': 'ruby',
+                        'php': 'php',
+                        'html': 'html',
+                        'css': 'css',
+                        'scss': 'scss',
+                        'json': 'json',
+                        'md': 'markdown',
+                        'yaml': 'yaml',
+                        'yml': 'yaml',
+                        'xml': 'xml',
+                        'sql': 'sql',
+                        'sh': 'shell',
+                        'bash': 'shell',
+                        'ps1': 'powershell',
+                        'txt': 'plaintext'
+                };
+                return langMap[ext] || 'plaintext';
+        };
+
+        const generateId = (itemPath, isFolder) => {
+                const hash = itemPath.split('').reduce((a, b) => {
+                        a = ((a << 5) - a) + b.charCodeAt(0);
+                        return a & a;
+                }, 0);
+                return `${isFolder ? 'folder' : 'file'}-ws-${Math.abs(hash).toString(36)}`;
+        };
+
+        const readDir = (dirPath, depth = 0) => {
+                if (depth > maxDepth || fileCount > maxFiles) return [];
+
+                const items = [];
+
+                try {
+                        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+
+                        for (const entry of entries) {
+                                if (fileCount > maxFiles) break;
+
+                                // Skip ignored patterns
+                                if (ignoredPatterns.some(pattern => entry.name === pattern || entry.name.startsWith('.'))) {
+                                        continue;
+                                }
+
+                                const fullPath = path.join(dirPath, entry.name);
+                                const relativePath = path.relative(workspacePath, fullPath);
+                                const id = generateId(relativePath, entry.isDirectory());
+
+                                if (entry.isDirectory()) {
+                                        const children = readDir(fullPath, depth + 1);
+                                        items.push({
+                                                id,
+                                                name: entry.name,
+                                                type: 'folder',
+                                                isOpen: depth < 2, // Auto-expand first 2 levels
+                                                children
+                                        });
+                                } else {
+                                        fileCount++;
+                                        const item = {
+                                                id,
+                                                name: entry.name,
+                                                type: 'file',
+                                                language: getLanguageFromExt(entry.name)
+                                        };
+                                        items.push(item);
+
+                                        // Read file contents (limit size to prevent memory issues)
+                                        // Read file contents (limit size to prevent memory issues)
+                                        try {
+                                                const stats = fs.statSync(fullPath);
+
+                                                if (stats.size < maxFileSize) {
+                                                        // Check for binary content (read first 512 bytes)
+                                                        const fd = fs.openSync(fullPath, 'r');
+                                                        const buffer = Buffer.alloc(512);
+                                                        const bytesRead = fs.readSync(fd, buffer, 0, 512, 0);
+                                                        fs.closeSync(fd);
+
+                                                        if (isBinary(buffer.slice(0, bytesRead))) {
+                                                                fileContents[id] = '// Binary file (not displayed)';
+                                                        } else {
+                                                                fileContents[id] = fs.readFileSync(fullPath, 'utf-8');
+                                                        }
+                                                } else {
+                                                        fileContents[id] = `// File too large to load (${(stats.size / 1024).toFixed(1)} KB)`;
+                                                }
+                                        } catch (e) {
+                                                fileContents[id] = `// Error reading file: ${e.message}`;
+                                        }
+                                }
+                        }
+                } catch (e) {
+                        console.error(`Error reading directory ${dirPath}:`, e.message);
+                }
+
+                // Sort: folders first, then files, alphabetically
+                return items.sort((a, b) => {
+                        if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+                        return a.name.localeCompare(b.name);
+                });
+        };
+
+        const result = readDir(workspacePath);
+
+        return {
+                files: result,
+                fileContents,
+                stats: {
+                        totalFiles: fileCount,
+                        totalFolders: result.filter(i => i.type === 'folder').length
+                }
+        };
+}
+
 export { WORKSPACE_BASE };

@@ -68,19 +68,29 @@ const StudentCard = ({ student, onClick, onViewCode, onMessage, onMute }) => {
                 >
                         {/* Card Header */}
                         <div className={`h-10 flex items-center justify-between px-3 border-b ${student.enlarged ? 'bg-indigo-900/20 border-indigo-500/30' : 'bg-zinc-800/50 border-zinc-700/50'}`}>
-                                <div className="flex items-center gap-3">
-                                        {/* Avatar or Status Indicator */}
-                                        {student.avatar ? (
+                        <div className="flex items-center gap-3">
+                                        {/* Avatar */}
+                                        {student.avatar && (
                                                 <img 
                                                         src={student.avatar} 
                                                         alt={displayName}
                                                         className="w-6 h-6 rounded-full object-cover border border-zinc-600"
                                                 />
-                                        ) : (
-                                                <div className={`w-2.5 h-2.5 rounded-full bg-${status.color}-500 ${status.animate ? 'animate-pulse' : ''}`}
-                                                        style={{ backgroundColor: status.color === 'emerald' ? '#10b981' : status.color === 'blue' ? '#3b82f6' : status.color === 'red' ? '#ef4444' : '#71717a' }}
-                                                />
                                         )}
+
+                                        {/* Status dot — always visible */}
+                                        <div
+                                                className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${status.animate ? 'animate-pulse' : ''}`}
+                                                style={{
+                                                        backgroundColor:
+                                                                student.status === 'active' ? '#10b981' :
+                                                                student.status === 'typing' ? '#3b82f6' :
+                                                                student.status === 'error'  ? '#ef4444' :
+                                                                '#52525b' // idle / unknown → zinc-600
+                                                }}
+                                                title={`Status: ${status.label}`}
+                                        />
+
                                         <span className="text-sm font-semibold text-zinc-200">
                                                 {displayName}
                                         </span>
@@ -88,12 +98,6 @@ const StudentCard = ({ student, onClick, onViewCode, onMessage, onMute }) => {
                                                 <span className="text-[10px] font-bold text-indigo-400 bg-indigo-500/20 px-2 py-0.5 rounded-full uppercase">
                                                         Focused
                                                 </span>
-                                        )}
-                                        {/* Status badge for avatar mode */}
-                                        {student.avatar && (
-                                                <div className={`w-2 h-2 rounded-full ${status.animate ? 'animate-pulse' : ''}`}
-                                                        style={{ backgroundColor: status.color === 'emerald' ? '#10b981' : status.color === 'blue' ? '#3b82f6' : status.color === 'red' ? '#ef4444' : '#71717a' }}
-                                                />
                                         )}
                                 </div>
 

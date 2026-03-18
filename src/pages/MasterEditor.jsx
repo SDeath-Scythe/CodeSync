@@ -55,7 +55,8 @@ const PanelHeader = ({ title, onClose, children, className = '' }) => (
 function MasterEditorContent({ sessionInfo }) {
         const navigate = useNavigate();
         const { joinSession, currentSession, loadSessionFromDb, socket } = useCollaboration();
-        const { loadFromSession, fileStructure, fileContents, activeFileId, findItemById } = useFileSystem();
+        const fileSystem = useFileSystem();
+        const { loadFromSession, fileStructure, fileContents, activeFileId, findItemById, mergeWorkspaceFiles, setFileContent } = fileSystem;
         const { isSaving, lastSaved } = useSaveSession();
 
         const [showSidebar, setShowSidebar] = useState(true);
@@ -148,8 +149,15 @@ function MasterEditorContent({ sessionInfo }) {
         }, []);
 
         const toggleCursors = useCallback(() => {
-                setShowCursors(prev => !prev);
-        }, []);
+                setShowCursors(prev => {
+                        const newVal = !prev;
+                        // Broadcast to all session participants
+                        if (socket) {
+                                socket.emit('toggle-remote-cursors', { enabled: newVal });
+                        }
+                        return newVal;
+                });
+        }, [socket]);
 
         const toggleTerminal = useCallback(() => {
                 setShowTerminal(prev => !prev);
@@ -162,6 +170,16 @@ function MasterEditorContent({ sessionInfo }) {
                         fileContents: fileContents
                 };
         }, [fileStructure, fileContents]);
+
+        // Handle workspace update from terminal (reverse sync)
+        const handleWorkspaceUpdate = useCallback((data) => {
+                console.log('📂 Merging workspace files into app:', data.stats);
+
+                if (mergeWorkspaceFiles) {
+                        // Merge the new files into the existing structure
+                        mergeWorkspaceFiles(data.files, data.fileContents);
+                }
+        }, [mergeWorkspaceFiles]);
 
         // Helper to get full file path from file structure
         const buildFilePath = useCallback((items, targetId, currentPath = '') => {
@@ -308,6 +326,8 @@ function MasterEditorContent({ sessionInfo }) {
                                                 {/* Editor Area */}
                                                 <div className={`${showTerminal ? 'flex-1' : 'h-full'} min-h-0 overflow-hidden`}>
                                                         <CodeEditor
+                                                                fileSystem={fileSystem}
+                                                                color="indigo"
                                                                 isFullscreen={fullscreenMode === 'code'}
                                                                 onToggleFullscreen={() => toggleFullscreen('code')}
                                                                 showCursors={showCursors}
@@ -329,6 +349,7 @@ function MasterEditorContent({ sessionInfo }) {
                                                                         socket={socket}
                                                                         sessionCode={currentSession}
                                                                         onSync={getFilesForSync}
+                                                                        onWorkspaceUpdate={handleWorkspaceUpdate}
                                                                         className="h-full"
                                                                         autoStart={autoStartTerminal}
                                                                         runCommand={pendingRunCommand}

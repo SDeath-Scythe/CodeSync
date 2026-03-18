@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 import { config } from 'dotenv';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
+import fs from 'fs';
 import * as terminalService from './services/terminalService.js';
 
 // Load environment variables before Prisma
@@ -41,7 +42,8 @@ app.use(cors({
   origin: ['http://localhost:5173', 'http://localhost:5174'],
   credentials: true
 }));
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Helper to generate session code
 function generateSessionCode() {
@@ -738,7 +740,10 @@ app.post('/sessions/:code/files/bulk', async (req, res) => {
     });
   } catch (error) {
     console.error('Save workspace error:', error);
-    res.status(500).json({ error: 'Failed to save workspace' });
+    // Log more details if available
+    if (error.code) console.error('Error code:', error.code);
+    if (error.meta) console.error('Error meta:', error.meta);
+    res.status(500).json({ error: 'Failed to save workspace', details: error.message });
   }
 });
 
@@ -1270,6 +1275,41 @@ io.on('connection', (socket) => {
   });
 
   // ============================================
+  // STUDENT DIAGNOSTICS EVENTS
+  // ============================================
+
+  // Student has syntax errors in their editor
+  socket.on('student-error', ({ error, errorCount }) => {
+    if (!currentSession || !currentUser) return;
+    console.log(`⚠️ Student ${currentUser.name} has ${errorCount} error(s): ${error}`);
+    socket.to(currentSession).emit('student-error', {
+      userId: currentUser.id,
+      error,
+      errorCount
+    });
+  });
+
+  // Student's errors have been cleared
+  socket.on('student-error-cleared', () => {
+    if (!currentSession || !currentUser) return;
+    console.log(`✅ Student ${currentUser.name} cleared their errors`);
+    socket.to(currentSession).emit('student-error-cleared', {
+      userId: currentUser.id
+    });
+  });
+
+  // ============================================
+  // CURSOR VISIBILITY EVENTS
+  // ============================================
+
+  // Teacher toggles remote cursor visibility for everyone
+  socket.on('toggle-remote-cursors', ({ enabled }) => {
+    if (!currentSession || !currentUser) return;
+    console.log(`👁️ ${currentUser.name} toggled remote cursors: ${enabled}`);
+    socket.to(currentSession).emit('toggle-remote-cursors', { enabled });
+  });
+
+  // ============================================
   // TERMINAL EVENTS
   // ============================================
 
@@ -1304,17 +1344,64 @@ io.on('connection', (socket) => {
 
         // Set up data listener for this terminal
         terminal._dataDispose = terminal.pty.onData((data) => {
+          // Send to the user who owns the terminal
           socket.emit('terminal-data', { data });
+          // Broadcast to everyone else in the session (useful for read-only viewing)
+          socket.to(currentSession).emit('terminal-data-broadcast', { 
+            userId: currentUser.id, 
+            data 
+          });
         });
 
         terminal._exitDispose = terminal.pty.onExit(({ exitCode }) => {
           socket.emit('terminal-exit', { exitCode });
+          socket.to(currentSession).emit('terminal-exit-broadcast', { 
+            userId: currentUser.id, 
+            exitCode 
+          });
         });
 
         console.log(`🖥️ Terminal ${terminal._listenersAttached ? 'reconnected' : 'started'} for ${currentUser.name} in ${currentSession}`);
         terminal._listenersAttached = true;
       } else {
         console.log(`🖥️ Terminal reused for ${currentUser.name} in ${currentSession}`);
+      }
+
+      // Set up file watcher for auto reverse-sync (debounced)
+      // Clean up old watcher if socket changed
+      if (terminal._fsWatcher) {
+        terminal._fsWatcher.close();
+        terminal._fsWatcher = null;
+      }
+
+      let watchDebounceTimer = null;
+      const ignoredPaths = ['node_modules', '.git', '.codesync_profile.ps1', 'AppData', 'Microsoft', '.cache', '__pycache__'];
+
+      try {
+        terminal._fsWatcher = fs.watch(terminal.workspacePath, { recursive: true }, (eventType, filename) => {
+          // Skip ignored paths
+          if (filename && ignoredPaths.some(p => filename.includes(p))) return;
+
+          // Debounce: wait 2s after last change before syncing
+          if (watchDebounceTimer) clearTimeout(watchDebounceTimer);
+          watchDebounceTimer = setTimeout(() => {
+            try {
+              console.log(`📂 Auto-sync: detected file change (${eventType}: ${filename})`);
+              const result = terminalService.readWorkspaceToFileStructure(terminal.workspacePath);
+              socket.emit('terminal-workspace-data', {
+                files: result.files,
+                fileContents: result.fileContents,
+                stats: result.stats,
+                workspacePath: terminal.workspacePath
+              });
+            } catch (err) {
+              console.error('Auto-sync error:', err.message);
+            }
+          }, 2000);
+        });
+        console.log(`👁️ File watcher active for workspace`);
+      } catch (watchErr) {
+        console.error('Could not set up file watcher:', watchErr.message);
       }
 
       socket.emit('terminal-started', {
@@ -1342,6 +1429,15 @@ io.on('connection', (socket) => {
   // Kill terminal
   socket.on('terminal-kill', () => {
     if (!currentSession || !currentUser) return;
+
+    // Clean up file watcher
+    const terminal = terminalService.getTerminal(currentSession, currentUser.id);
+    if (terminal && terminal._fsWatcher) {
+      terminal._fsWatcher.close();
+      terminal._fsWatcher = null;
+      console.log('👁️ File watcher closed');
+    }
+
     terminalService.killTerminal(currentSession, currentUser.id);
     socket.emit('terminal-killed', { message: 'Terminal terminated' });
   });
@@ -1369,10 +1465,46 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Read workspace files and send back to client (reverse sync)
+  socket.on('terminal-read-workspace', () => {
+    if (!currentSession || !currentUser) {
+      socket.emit('terminal-error', { message: 'Not in a session' });
+      return;
+    }
+
+    try {
+      const workspacePath = terminalService.getWorkspaceDir(currentSession, currentUser.id);
+
+      console.log('📂 Reading workspace:', workspacePath);
+
+      const result = terminalService.readWorkspaceToFileStructure(workspacePath);
+
+      console.log(`📂 Found ${result.stats.totalFiles} files, ${result.stats.totalFolders} folders`);
+
+      socket.emit('terminal-workspace-data', {
+        files: result.files,
+        fileContents: result.fileContents,
+        stats: result.stats,
+        workspacePath
+      });
+    } catch (error) {
+      console.error('Read workspace error:', error);
+      socket.emit('terminal-error', { message: error.message });
+    }
+  });
+
   // Disconnect
   socket.on('disconnect', () => {
     console.log('🔌 Client disconnected:', socket.id);
 
+    // Clean up file watcher
+    if (currentSession && currentUser) {
+      const terminal = terminalService.getTerminal(currentSession, currentUser.id);
+      if (terminal && terminal._fsWatcher) {
+        terminal._fsWatcher.close();
+        terminal._fsWatcher = null;
+      }
+    }
     if (currentSession && sessionUsers.has(currentSession)) {
       const users = sessionUsers.get(currentSession);
       const user = users.get(socket.id);

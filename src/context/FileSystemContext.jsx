@@ -601,6 +601,38 @@ export const FileSystemProvider = ({ children }) => {
     setOpenFiles(prev => prev.map(f => ({ ...f, unsaved: false })));
   }, []);
 
+  /**
+   * mergeWorkspaceFiles
+   * Called when the server's file-watcher detects changes in the workspace on disk.
+   * Replaces the full tree + contents with the server's ground truth,
+   * while keeping any currently open tabs valid (if the file still exists).
+   */
+  const mergeWorkspaceFiles = useCallback((newTree, newContents) => {
+    if (!newTree || !Array.isArray(newTree)) return;
+
+    console.log('📂 mergeWorkspaceFiles: syncing workspace tree into teacher FS');
+
+    // Collect all valid file IDs from the new tree for tab cleanup
+    const collectFileIds = (items) => {
+      const ids = new Set();
+      for (const item of items) {
+        ids.add(item.id);
+        if (item.children) {
+          for (const id of collectFileIds(item.children)) ids.add(id);
+        }
+      }
+      return ids;
+    };
+    const validIds = collectFileIds(newTree);
+
+    setFileStructure(newTree);
+    setFileContents(prev => ({ ...prev, ...newContents }));
+
+    // Remove any open tabs for files that no longer exist
+    setOpenFiles(prev => prev.filter(f => validIds.has(f.id)));
+    setActiveFileId(prev => (prev && validIds.has(prev) ? prev : null));
+  }, []);
+
   const value = useMemo(() => ({
     fileStructure,
     fileContents,
@@ -624,7 +656,8 @@ export const FileSystemProvider = ({ children }) => {
     // New session save/load functions
     serializeForSave,
     loadFromSession,
-    markAllSaved
+    markAllSaved,
+    mergeWorkspaceFiles
   }), [
     fileStructure,
     fileContents,
@@ -647,7 +680,8 @@ export const FileSystemProvider = ({ children }) => {
     saveFile,
     serializeForSave,
     loadFromSession,
-    markAllSaved
+    markAllSaved,
+    mergeWorkspaceFiles
   ]);
 
   return (

@@ -178,13 +178,6 @@ const DashboardContent = () => {
                                 <div className="absolute inset-0 bg-gradient-to-r from-indigo-600/5 via-transparent to-purple-600/5 pointer-events-none" />
                                 
                                 <div className="flex items-center gap-4 z-10">
-                                        <button
-                                                onClick={() => navigate('/hub')}
-                                                className="p-2 hover:bg-zinc-800/50 rounded-lg transition-colors"
-                                                title="Back to Hub"
-                                        >
-                                                <ArrowLeft className="w-5 h-5 text-zinc-400" />
-                                        </button>
                                         <div className="flex items-center gap-3 cursor-pointer group" onClick={handleGoToEditor}>
                                                 <div className="relative">
                                                         <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/30">
@@ -336,15 +329,29 @@ const DashboardContent = () => {
                                                         <BarChart2 className="w-3 h-3" /> Session Stats
                                                 </h3>
                                                 <div className="grid grid-cols-3 gap-2">
-                                                        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 text-center hover:bg-emerald-500/20 transition-all cursor-pointer">
+                                                        {/* Active */}
+                                                        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 text-center hover:bg-emerald-500/20 transition-all cursor-pointer group relative overflow-hidden">
+                                                                <div className="absolute top-2 right-2">
+                                                                        <div className="w-2 h-2 rounded-full bg-emerald-500">
+                                                                                {activeCount > 0 && <div className="absolute inset-0 w-2 h-2 rounded-full bg-emerald-500 animate-ping" />}
+                                                                        </div>
+                                                                </div>
                                                                 <div className="text-2xl font-bold text-emerald-400">{activeCount}</div>
                                                                 <div className="text-[9px] text-emerald-400/70 uppercase font-semibold">Active</div>
                                                         </div>
-                                                        <div className="bg-zinc-500/10 border border-zinc-500/20 rounded-xl p-3 text-center hover:bg-zinc-500/20 transition-all cursor-pointer">
+                                                        {/* Idle */}
+                                                        <div className="bg-zinc-500/10 border border-zinc-600/30 rounded-xl p-3 text-center hover:bg-zinc-500/20 transition-all cursor-pointer relative overflow-hidden">
+                                                                <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-zinc-500" />
                                                                 <div className="text-2xl font-bold text-zinc-400">{idleCount}</div>
                                                                 <div className="text-[9px] text-zinc-400/70 uppercase font-semibold">Idle</div>
                                                         </div>
-                                                        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 text-center hover:bg-red-500/20 transition-all cursor-pointer">
+                                                        {/* Errors */}
+                                                        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-center hover:bg-red-500/20 transition-all cursor-pointer relative overflow-hidden">
+                                                                <div className="absolute top-2 right-2">
+                                                                        <div className="w-2 h-2 rounded-full bg-red-500">
+                                                                                {errorCount > 0 && <div className="absolute inset-0 w-2 h-2 rounded-full bg-red-500 animate-ping" />}
+                                                                        </div>
+                                                                </div>
                                                                 <div className="text-2xl font-bold text-red-400">{errorCount}</div>
                                                                 <div className="text-[9px] text-red-400/70 uppercase font-semibold">Errors</div>
                                                         </div>
@@ -367,27 +374,51 @@ const DashboardContent = () => {
                                                                 </div>
                                                         ) : (
                                                                 <div className="space-y-1">
-                                                                        {students.map((student) => (
-                                                                                <div
-                                                                                        key={student.id}
-                                                                                        className={`flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer group transition-all ${student.enlarged ? 'bg-indigo-600/20 border border-indigo-500/30' : 'hover:bg-zinc-800/50 border border-transparent hover:border-zinc-700/50'}`}
-                                                                                        onClick={() => handleStudentClick(student.id)}
-                                                                                        onDoubleClick={() => handleViewStudentCode(student)}
-                                                                                >
-                                                                                        <div className="flex items-center gap-3">
-                                                                                                <div className={`w-2.5 h-2.5 rounded-full ${student.status === 'active' ? 'bg-emerald-500' :
-                                                                                                                student.status === 'typing' ? 'bg-blue-500 animate-pulse' :
-                                                                                                                        student.status === 'error' ? 'bg-red-500' :
-                                                                                                                                'bg-zinc-600'
-                                                                                                        }`} />
-                                                                                                <span className="text-sm text-zinc-300 group-hover:text-white truncate max-w-[140px] font-medium">
-                                                                                                        {student.name?.split("'")[0] || student.name}
-                                                                                                </span>
+                                                                        {students.map((student) => {
+                                                                const statusMeta = {
+                                                                        active:  { color: '#10b981', label: 'Active',  pulse: false },
+                                                                        typing:  { color: '#3b82f6', label: 'Typing',  pulse: true  },
+                                                                        idle:    { color: '#52525b', label: 'Idle',    pulse: false },
+                                                                        error:   { color: '#ef4444', label: 'Error',   pulse: false },
+                                                                };
+                                                                const meta = statusMeta[student.status] || statusMeta.idle;
+                                                                return (
+                                                                        <div
+                                                                                key={student.id}
+                                                                                className={`flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer group transition-all ${
+                                                                                        student.enlarged
+                                                                                                ? 'bg-indigo-600/20 border border-indigo-500/30'
+                                                                                                : 'hover:bg-zinc-800/50 border border-transparent hover:border-zinc-700/50'
+                                                                                }`}
+                                                                                onClick={() => handleStudentClick(student.id)}
+                                                                                onDoubleClick={() => handleViewStudentCode(student)}
+                                                                        >
+                                                                                <div className="flex items-center gap-2.5 min-w-0">
+                                                                                        {/* Status dot */}
+                                                                                        <div className="relative flex-shrink-0">
+                                                                                                <div
+                                                                                                        className={`w-2.5 h-2.5 rounded-full ${meta.pulse ? 'animate-pulse' : ''}`}
+                                                                                                        style={{ backgroundColor: meta.color }}
+                                                                                                />
                                                                                         </div>
-                                                                                        <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-indigo-400 transition-colors" />
+                                                                                        <span className="text-sm text-zinc-300 group-hover:text-white truncate max-w-[100px] font-medium">
+                                                                                                {student.name?.split("'")[0] || student.name}
+                                                                                        </span>
+                                                                                        {/* Status label badge */}
+                                                                                        <span
+                                                                                                className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full uppercase tracking-wide flex-shrink-0"
+                                                                                                style={{
+                                                                                                        backgroundColor: `${meta.color}20`,
+                                                                                                        color: meta.color
+                                                                                                }}
+                                                                                        >
+                                                                                                {meta.label}
+                                                                                        </span>
                                                                                 </div>
-                                                                        ))}
-                                                                </div>
+                                                                                <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-indigo-400 transition-colors flex-shrink-0" />
+                                                                        </div>
+                                                                );
+                                                        })}                </div>
                                                         )}
                                                 </div>
                                         </div>

@@ -4,11 +4,12 @@ import TopBar from '../components/TopBar';
 import SideBar from '../components/SideBar';
 import LocalSideBar from '../components/LocalSideBar';
 import CodeEditor from '../components/CodeEdtor';
-import LocalCodeEditor from '../components/LocalCodeEditor';
+// import LocalCodeEditor from '../components/LocalCodeEditor'; // Unused
 import EditorBanner from '../components/Student.Components/EditorBanner';
 import ClassroomPanel from '../components/ClassroomPanel';
 import StatusBar from '../components/StatusBar';
 import ResizablePanel from '../components/ResizablePanel';
+import Terminal from '../components/Terminal'; // Import Terminal
 import { FileSystemProvider, useFileSystem } from '../context/FileSystemContext';
 import { LocalFileSystemProvider, useLocalFileSystem } from '../context/LocalFileSystemContext';
 import { useCollaboration } from '../context/CollaborationContext';
@@ -20,9 +21,11 @@ import useLocalSaveSession from '../hooks/useLocalSaveSession';
 function StudentClassroomContent({ sessionInfo }) {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { joinSession, currentSession, isConnected, loadSessionFromDb, loadTeacherFilesFromDb } = useCollaboration();
-  const { loadFromSession: loadTeacherFiles } = useFileSystem(); // For teacher's code (read-only)
-  const { loadFromSession: loadStudentFiles } = useLocalFileSystem(); // For student's own workspace
+  const { joinSession, currentSession, isConnected, loadSessionFromDb, loadTeacherFilesFromDb, socket } = useCollaboration();
+  const globalFS = useFileSystem();
+  const { loadFromSession: loadTeacherFiles } = globalFS; // For teacher's code (read-only)
+  const localFS = useLocalFileSystem();
+  const { loadFromSession: loadStudentFiles } = localFS; // For student's own workspace
   const { isSaving, lastSaved } = useLocalSaveSession(); // Use LOCAL save session hook
 
   const [showBanner, setShowBanner] = useState(true);
@@ -34,6 +37,83 @@ function StudentClassroomContent({ sessionInfo }) {
   const [loadingMessage, setLoadingMessage] = useState('');
   const [filesReady, setFilesReady] = useState(false);
   const [teacherName, setTeacherName] = useState('');
+  const [teacherId, setTeacherId] = useState(null); // Teacher's user ID for terminal broadcast filtering
+  const [showTerminal, setShowTerminal] = useState(false); // Terminal toggle state
+  const [pendingRunCommand, setPendingRunCommand] = useState(null);
+  const [showCursors, setShowCursors] = useState(true); // Synced with teacher's toggle
+
+  // Helper to get student files for terminal sync
+  // Uses localFS fileStructure and fileContents
+  const getStudentFilesForSync = useCallback(() => {
+    return {
+      files: localFS.fileStructure,
+      fileContents: localFS.fileContents
+    };
+  }, [localFS.fileStructure, localFS.fileContents]);
+
+  // Handle workspace updates from the server's file watcher (reverse sync)
+  // This updates the file explorer when terminal commands create/delete files on disk
+  const handleWorkspaceUpdate = useCallback((data) => {
+    console.log('📂 Student workspace update from server:', data.stats);
+    if (localFS.mergeWorkspaceFiles) {
+      localFS.mergeWorkspaceFiles(data.files, data.fileContents);
+    }
+  }, [localFS.mergeWorkspaceFiles]);
+
+  // Handle Run Code
+  const handleRunCode = useCallback(() => {
+    const { activeFileId, findItemById, fileStructure, getFilePath } = localFS;
+    if (!activeFileId || !socket) return;
+
+    // Get file info
+    const file = findItemById(fileStructure, activeFileId);
+    if (!file) return;
+
+    // Get path
+    const filePath = getFilePath(activeFileId) || file.name;
+    const ext = file.name.split('.').pop()?.toLowerCase();
+
+    const commandMap = {
+      'js': `node "${filePath}"`,
+      'jsx': `node "${filePath}"`,
+      'ts': `npx ts-node "${filePath}"`,
+      'tsx': `npx ts-node "${filePath}"`,
+      'py': `python "${filePath}"`,
+      'java': `java "${filePath.replace('.java', '')}"`,
+      'cpp': `g++ "${filePath}" -o out && ./out`,
+      'c': `gcc "${filePath}" -o out && ./out`,
+      'go': `go run "${filePath}"`,
+      'rs': `rustc "${filePath}" && ./${file.name.replace('.rs', '')}`,
+      'rb': `ruby "${filePath}"`,
+      'php': `php "${filePath}"`,
+      'sh': `bash "${filePath}"`,
+    };
+
+    const cmd = commandMap[ext];
+    if (cmd) {
+      setPendingRunCommand(cmd);
+      setShowTerminal(true);
+      setTimeout(() => setPendingRunCommand(null), 2000);
+    }
+  }, [localFS, socket]);
+
+  // Track and send syntax-error status to the teacher's dashboard
+  const lastErrorStateRef = useRef(false);
+  const handleDiagnosticsChange = useCallback(({ hasErrors, errorCount, errors }) => {
+    if (!socket) return;
+    // Only emit when the state actually changes
+    if (hasErrors && !lastErrorStateRef.current) {
+      lastErrorStateRef.current = true;
+      const firstError = errors[0];
+      socket.emit('student-error', {
+        error: firstError ? `Line ${firstError.startLineNumber}: ${firstError.message}` : 'Syntax error',
+        errorCount
+      });
+    } else if (!hasErrors && lastErrorStateRef.current) {
+      lastErrorStateRef.current = false;
+      socket.emit('student-error-cleared');
+    }
+  }, [socket]);
 
   // Use ref to track if files have been loaded (prevents re-running on each render)
   const filesLoadedRef = useRef(false);
@@ -46,6 +126,19 @@ function StudentClassroomContent({ sessionInfo }) {
       joinSession(sessionInfo.code);
     }
   }, [sessionInfo?.code, joinSession]);
+
+  // Listen for teacher's remote cursor toggle
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleToggleCursors = ({ enabled }) => {
+      console.log('👁️ Teacher toggled remote cursors:', enabled);
+      setShowCursors(enabled);
+    };
+
+    socket.on('toggle-remote-cursors', handleToggleCursors);
+    return () => socket.off('toggle-remote-cursors', handleToggleCursors);
+  }, [socket]);
 
   // Load BOTH teacher's files and student's files after joining session
   useEffect(() => {
@@ -69,7 +162,8 @@ function StudentClassroomContent({ sessionInfo }) {
             // Pass both files and fileContents to handle tree structure
             loadTeacherFiles(teacherFiles, teacherFileContents);
             setTeacherName(teacherResult.teacherName || 'Teacher');
-            console.log(`📂 Loaded ${teacherFiles.length} teacher files (${teacherResult.teacherName})`);
+            setTeacherId(teacherResult.teacherId || null);
+            console.log(`📂 Loaded ${teacherFiles.length} teacher files (${teacherResult.teacherName}) [id: ${teacherResult.teacherId}]`);
           } else {
             console.log('📂 No teacher files found yet');
           }
@@ -177,9 +271,9 @@ function StudentClassroomContent({ sessionInfo }) {
         )}
 
         {/* Center: Editor + Banner */}
+        {/* Collaborative Mode Banner */}
         <div className="flex-1 h-full min-w-0 bg-zinc-900/50 backdrop-blur-sm flex flex-col relative">
 
-          {/* A. Collaborative Mode Banner */}
           {showBanner && (
             <EditorBanner mode="student" onClose={() => setShowBanner(false)} />
           )}
@@ -233,35 +327,111 @@ function StudentClassroomContent({ sessionInfo }) {
             </span>
           </div>
 
-          {/* B. Dual Code Editors */}
-          <div className="flex-1 relative">
-            {/* Teacher's Editor (Read-Only, synced with teacher's code) */}
-            <div className={`absolute inset-0 transition-opacity duration-200 ${activeEditorTab === 'teacher' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
-              <CodeEditor readOnly={true} showCursors={true} />
+          {/* B. Dual Code Editors Area */}
+          <div className="flex-1 relative flex flex-col min-h-0 bg-zinc-900/50">
+
+            {/* Editors Container */}
+            <div className="flex-1 relative min-h-0">
+              {/* Teacher's Editor (Read-Only) */}
+              <div className={`absolute inset-0 transition-opacity duration-200 ${activeEditorTab === 'teacher' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+                <CodeEditor
+                  fileSystem={globalFS}
+                  color="indigo"
+                  readOnly={true}
+                  showCursors={showCursors}
+                  showTerminal={showTerminal}
+                  onToggleTerminal={() => setShowTerminal(prev => !prev)}
+                />
+              </div>
+
+              {/* Student's Own Editor (Editable) */}
+              <div className={`absolute inset-0 transition-opacity duration-200 ${activeEditorTab === 'student' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+                <CodeEditor
+                  fileSystem={localFS}
+                  color="green"
+                  showTerminal={showTerminal}
+                  onToggleTerminal={() => setShowTerminal(prev => !prev)}
+                  onRunCode={handleRunCode}
+                  onDiagnosticsChange={handleDiagnosticsChange}
+                />
+              </div>
+
+              {/* Sidebar restore button */}
+              {!showSidebar && (
+                <button
+                  onClick={() => setShowSidebar(true)}
+                  className={`absolute left-0 top-1/2 -translate-y-1/2 border border-l-0 px-2 py-3 rounded-r-lg text-xs font-semibold shadow-lg transition-all duration-200 hover:scale-105 flex flex-col items-center gap-1.5 z-20 ${activeEditorTab === 'teacher'
+                    ? 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 hover:border-indigo-500 text-zinc-400 hover:text-indigo-400'
+                    : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 hover:border-green-500 text-zinc-400 hover:text-green-400'
+                    }`}
+                  title="Show Explorer"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M14.5 3H7.71l-1-1H1.5l-.5.5v11l.5.5h13l.5-.5v-10l-.5-.5zm-.51 8.49V13H2V5h12v6.49z" />
+                  </svg>
+                  <span className="text-[10px]" style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}>
+                    {activeEditorTab === 'teacher' ? 'Teacher Files' : 'My Files'}
+                  </span>
+                </button>
+              )}
             </div>
 
-            {/* Student's Own Editor (Editable, completely separate) */}
-            <div className={`absolute inset-0 transition-opacity duration-200 ${activeEditorTab === 'student' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
-              <LocalCodeEditor />
-            </div>
+            {/* Terminal Panel */}
+            {showTerminal && (
+              <div className="shrink-0 border-t border-zinc-800 bg-[#1e1e2e]" style={{ height: '260px' }}>
+                {/* Terminal label bar - fixed 30px */}
+                <div className="flex items-center gap-2 px-3 border-b border-zinc-800 bg-zinc-900/70" style={{ height: '30px' }}>
+                  <div className="flex gap-1.5">
+                    <div className="w-3 h-3 rounded-full bg-red-500/70" />
+                    <div className="w-3 h-3 rounded-full bg-yellow-500/70" />
+                    <div className="w-3 h-3 rounded-full bg-green-500/70" />
+                  </div>
+                  {activeEditorTab === 'teacher' ? (
+                    <span className="text-[10px] text-indigo-400 font-medium flex items-center gap-1.5">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a5 5 0 1 0 5 5 5 5 0 0 0-5-5zm0 8a3 3 0 1 1 3-3 3 3 0 0 1-3 3zm9 11v-1a7 7 0 0 0-7-7h-4a7 7 0 0 0-7 7v1h2v-1a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v1z"/></svg>
+                      {teacherName ? `${teacherName}'s Terminal` : "Teacher's Terminal"}
+                      <span className="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300">👁 View Only</span>
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-green-400 font-medium flex items-center gap-1.5">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                      My Terminal
+                      <span className="px-1.5 py-0.5 rounded bg-green-500/20 text-green-300">Interactive</span>
+                    </span>
+                  )}
+                  <div className="flex-1" />
+                  <button
+                    onClick={() => setShowTerminal(false)}
+                    className="text-zinc-500 hover:text-white transition-colors p-0.5 rounded"
+                    title="Close Terminal"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </button>
+                </div>
 
-            {/* Sidebar restore button when hidden */}
-            {!showSidebar && (
-              <button
-                onClick={() => setShowSidebar(true)}
-                className={`absolute left-0 top-1/2 -translate-y-1/2 border border-l-0 px-2 py-3 rounded-r-lg text-xs font-semibold shadow-lg transition-all duration-200 hover:scale-105 flex flex-col items-center gap-1.5 z-20 ${activeEditorTab === 'teacher'
-                  ? 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 hover:border-indigo-500 text-zinc-400 hover:text-indigo-400'
-                  : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 hover:border-green-500 text-zinc-400 hover:text-green-400'
-                  }`}
-                title="Show Explorer"
-              >
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M14.5 3H7.71l-1-1H1.5l-.5.5v11l.5.5h13l.5-.5v-10l-.5-.5zm-.51 8.49V13H2V5h12v6.49z" />
-                </svg>
-                <span className="text-[10px]" style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}>
-                  {activeEditorTab === 'teacher' ? 'Teacher Files' : 'My Files'}
-                </span>
-              </button>
+                {/* Teacher Terminal View - explicit pixel height = 260 - 30 = 230px */}
+                <div style={{ display: activeEditorTab === 'teacher' ? 'block' : 'none', height: '230px' }}>
+                  <Terminal
+                    socket={socket}
+                    sessionCode={currentSession}
+                    readOnly={true}
+                    ownerId={teacherId}
+                    className="h-full"
+                  />
+                </div>
+
+                {/* Student Terminal View - explicit pixel height = 260 - 30 = 230px */}
+                <div style={{ display: activeEditorTab === 'student' ? 'block' : 'none', height: '230px' }}>
+                  <Terminal
+                    socket={socket}
+                    sessionCode={currentSession}
+                    onSync={getStudentFilesForSync}
+                    onWorkspaceUpdate={handleWorkspaceUpdate}
+                    className="h-full"
+                    runCommand={pendingRunCommand}
+                  />
+                </div>
+              </div>
             )}
           </div>
         </div>

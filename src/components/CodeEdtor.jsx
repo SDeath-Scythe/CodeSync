@@ -6,28 +6,31 @@ import { useAuth } from '../context/AuthContext';
 import socketService from '../services/socketService';
 import {
   X,
-  MoreHorizontal,
   Play,
-  Split,
   ChevronRight,
   Maximize2,
   Minimize2,
   Users,
   Eye,
-  EyeOff
+  EyeOff,
+  Terminal as TerminalIcon // Rename to avoid conflict if Terminal component is ever imported
 } from 'lucide-react';
 
 /**
- * CodeEditor Component
- * Uses Monaco Editor for the editing surface and connects to FileSystemContext.
+ * Uses Monaco Editor for the editing surface and connects to the provided FileSystemContext.
  */
 const CodeEditor = ({
+  fileSystem,
+  color = 'indigo',
   isFullscreen = false,
   onToggleFullscreen,
   readOnly = false,
   showCursors = true,
   onToggleCursors,
-  onRunCode
+  onRunCode,
+  showTerminal,
+  onToggleTerminal,
+  onDiagnosticsChange // Callback: ({ hasErrors, errorCount, errors }) => void
 }) => {
   const {
     openFiles,
@@ -40,7 +43,7 @@ const CodeEditor = ({
     getFilePath,
     findItemById,
     fileStructure
-  } = useFileSystem();
+  } = fileSystem;
 
   const { remoteCursors, isConnected, sendCodeChange, pendingChanges, consumePendingChanges } = useCollaboration();
   const { user } = useAuth();
@@ -48,10 +51,16 @@ const CodeEditor = ({
   // Monaco Refs
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
+  const onDiagnosticsChangeRef = useRef(onDiagnosticsChange);
   const editorContainerRef = useRef(null);
   const decorationsRef = useRef([]);
   const cursorThrottleRef = useRef(null);
   const codeChangeThrottleRef = useRef(null);
+
+  // Keep diagnostics callback ref in sync
+  useEffect(() => {
+    onDiagnosticsChangeRef.current = onDiagnosticsChange;
+  }, [onDiagnosticsChange]);
 
   // Get active file details
   const activeFile = activeFileId ? findItemById(fileStructure, activeFileId) : null;
@@ -343,27 +352,30 @@ const CodeEditor = ({
       sendCursorPosition(position, selection);
     });
 
-    // Add CSS for remote cursors
-    const styleSheet = document.createElement('style');
-    styleSheet.textContent = `
-      .remote-cursor-line {
-        border-left: 2px solid #818cf8 !important;
-        margin-left: -1px;
-      }
-      .remote-cursor-marker {
-        background-color: rgba(129, 140, 248, 0.1);
-      }
-      .remote-selection {
-        background-color: rgba(129, 140, 248, 0.25) !important;
-      }
-      .remote-cursor-glyph {
-        background: linear-gradient(135deg, #818cf8, #a855f7);
-        width: 3px !important;
-        margin-left: 3px;
-        border-radius: 2px;
-      }
-    `;
-    document.head.appendChild(styleSheet);
+    // Add CSS for remote cursors SAFELY
+    if (!document.getElementById('remote-cursor-styles')) {
+      const styleSheet = document.createElement('style');
+      styleSheet.id = 'remote-cursor-styles'; // Give it an ID
+      styleSheet.textContent = `
+        .remote-cursor-line {
+          border-left: 2px solid #818cf8 !important;
+          margin-left: -1px;
+        }
+        .remote-cursor-marker {
+          background-color: rgba(129, 140, 248, 0.1);
+        }
+        .remote-selection {
+          background-color: rgba(129, 140, 248, 0.25) !important;
+        }
+        .remote-cursor-glyph {
+          background: linear-gradient(135deg, #818cf8, #a855f7);
+          width: 3px !important;
+          margin-left: 3px;
+          border-radius: 2px;
+        }
+      `;
+      document.head.appendChild(styleSheet);
+    }
 
     // Register JSX language
     monaco.languages.register({ id: 'jsx' });
@@ -554,6 +566,34 @@ const CodeEditor = ({
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Slash, () => {
       editor.trigger('keyboard', 'editor.action.commentLine', null);
     });
+
+    // Listen for marker (diagnostic) changes to detect errors
+    const markerDisposable = monaco.editor.onDidChangeMarkers((uris) => {
+      if (!onDiagnosticsChangeRef.current) return;
+      const model = editor.getModel();
+      if (!model) return;
+
+      // Check if any of the changed URIs match the current model
+      const modelUri = model.uri.toString();
+      const isRelevant = uris.some(uri => uri.toString() === modelUri);
+      if (!isRelevant) return;
+
+      const markers = monaco.editor.getModelMarkers({ resource: model.uri });
+      const errors = markers.filter(m => m.severity === monaco.MarkerSeverity.Error);
+
+      onDiagnosticsChangeRef.current({
+        hasErrors: errors.length > 0,
+        errorCount: errors.length,
+        errors: errors.map(e => ({
+          message: e.message,
+          startLineNumber: e.startLineNumber,
+          endLineNumber: e.endLineNumber
+        }))
+      });
+    });
+
+    // Store disposable for cleanup
+    editor.__markerDisposable = markerDisposable;
   };
 
   // Handle content change - send to other users in real-time
@@ -584,10 +624,23 @@ const CodeEditor = ({
 
     // Apply the latest change
     const latestChange = changes[changes.length - 1];
-    const currentContent = getFileContent(activeFileId);
+    const editor = editorRef.current;
 
-    // Only update if content is different (avoid infinite loop)
-    if (latestChange.content !== currentContent) {
+    // Safety check
+    if (!editor) return;
+
+    const model = editor.getModel();
+
+    // Safely inject the text without moving the local cursor
+    // executeEdits preserves the undo stack and cursor position better than setValue
+    if (latestChange.content !== model.getValue()) {
+      editor.executeEdits("remote-sync", [{
+        range: model.getFullModelRange(),
+        text: latestChange.content,
+        forceMoveMarkers: true
+      }]);
+
+      // Still update the context behind the scenes so the file saves correctly
       updateFileContent(activeFileId, latestChange.content);
     }
 
@@ -618,14 +671,14 @@ const CodeEditor = ({
     <div className="flex flex-col h-full w-full bg-zinc-900/80 backdrop-blur-sm overflow-hidden">
 
       {/* 1. TABS BAR */}
-      <div className="flex bg-zinc-900/80 h-9 border-b border-indigo-500/20 overflow-x-auto custom-scrollbar-hide shrink-0">
+      <div className={`flex bg-zinc-900/80 h-9 border-b border-${color}-500/20 overflow-x-auto custom-scrollbar-hide shrink-0`}>
         {openFiles.map((file) => {
           const fileInfo = getFileIcon(file.name);
           return (
             <div
               key={file.id}
               onClick={() => handleTabClick(file.id)}
-              className={`group flex items-center gap-2 px-3 min-w-[120px] max-w-[200px] text-xs cursor-pointer border-r border-zinc-800 select-none transition-colors duration-75 ${file.id === activeFileId ? 'bg-zinc-800/50 text-white border-t-2 border-t-indigo-500' : 'bg-zinc-900/50 text-zinc-400 hover:bg-zinc-800/30'}`}
+              className={`group flex items-center gap-2 px-3 min-w-[120px] max-w-[200px] text-xs cursor-pointer border-r border-zinc-800 select-none transition-colors duration-75 ${file.id === activeFileId ? `bg-zinc-800/50 text-white border-t-2 border-t-${color}-500` : 'bg-zinc-900/50 text-zinc-400 hover:bg-zinc-800/30'}`}
             >
               <span className={fileInfo.color}>
                 {fileInfo.icon}
@@ -648,7 +701,7 @@ const CodeEditor = ({
           {onToggleCursors && (
             <button
               onClick={onToggleCursors}
-              className={`p-1 rounded transition-colors flex items-center gap-1 ${showCursors ? 'hover:bg-indigo-500/20 text-indigo-400' : 'hover:bg-zinc-700/50 text-zinc-500'}`}
+              className={`p-1 rounded transition-colors flex items-center gap-1 ${showCursors ? `hover:bg-${color}-500/20 text-${color}-400` : 'hover:bg-zinc-700/50 text-zinc-500'}`}
               title={showCursors ? "Hide Remote Cursors" : "Show Remote Cursors"}
             >
               {showCursors ? (
@@ -661,28 +714,38 @@ const CodeEditor = ({
           )}
           <button
             onClick={onRunCode}
-            disabled={!activeFileId}
-            className={`p-1.5 rounded flex items-center gap-1.5 transition-all ${activeFileId ? 'bg-green-600/20 hover:bg-green-500/30 text-green-400 border border-green-500/30' : 'opacity-40 cursor-not-allowed text-zinc-500'}`}
-            title="Run Code (Ctrl+Enter)"
+            disabled={!activeFileId || readOnly}
+            className={`p-1.5 rounded flex items-center gap-1.5 transition-all ${activeFileId && !readOnly ? 'bg-green-600/20 hover:bg-green-500/30 text-green-400 border border-green-500/30' : 'opacity-40 cursor-not-allowed text-zinc-500'}`}
+            title={readOnly ? "Cannot run read-only code" : "Run Code (Ctrl+Enter)"}
           >
             <Play className="w-3.5 h-3.5" />
             <span className="text-xs font-medium">Run</span>
           </button>
-          <Split className="w-4 h-4 hover:text-white cursor-pointer" title="Split Editor" />
+
+          {onToggleTerminal && (
+            <button
+              onClick={onToggleTerminal}
+              className={`p-1 rounded transition-colors ${showTerminal ? `bg-${color}-500/20 text-${color}-400` : 'hover:bg-zinc-700/50 text-zinc-500'}`}
+              title={showTerminal ? "Hide Terminal" : "Show Terminal"}
+            >
+              <TerminalIcon className="w-4 h-4" />
+            </button>
+          )}
+
           {onToggleFullscreen && (
             <button
               onClick={onToggleFullscreen}
-              className="p-1 hover:bg-indigo-500/20 rounded transition-colors"
+              className={`p-1 hover:bg-${color}-500/20 rounded transition-colors`}
               title={isFullscreen ? "Exit Fullscreen" : "Fullscreen Editor"}
             >
               {isFullscreen ? (
-                <Minimize2 className="w-4 h-4 hover:text-indigo-400 cursor-pointer" />
+                <Minimize2 className={`w-4 h-4 hover:text-${color}-400 cursor-pointer`} />
               ) : (
-                <Maximize2 className="w-4 h-4 hover:text-indigo-400 cursor-pointer" />
+                <Maximize2 className={`w-4 h-4 hover:text-${color}-400 cursor-pointer`} />
               )}
             </button>
           )}
-          <MoreHorizontal className="w-4 h-4 hover:text-white cursor-pointer" title="More Actions" />
+
         </div>
       </div>
 
@@ -711,7 +774,7 @@ const CodeEditor = ({
                 height="100%"
                 language={getLanguage(activeFile.name)}
                 theme="vs-dark"
-                value={codeContent}
+                defaultValue={codeContent}
                 onChange={readOnly ? undefined : handleEditorChange}
                 onMount={handleEditorDidMount}
                 path={'file:///' + activeFile.name}

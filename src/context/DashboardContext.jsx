@@ -260,11 +260,31 @@ export const DashboardProvider = ({ children, sessionCode }) => {
 
     // Handle student errors (syntax errors, runtime errors)
     const handleStudentError = ({ userId, error }) => {
+      console.log('Dashboard: Student error', userId, error);
       setStudents(prev => prev.map(student => 
         student.id === userId 
           ? { ...student, status: 'error', errorMessage: error }
           : student
       ));
+
+      // Clear any idle timeout — error status should persist until cleared
+      if (activityTimeouts.current.has(userId)) {
+        clearTimeout(activityTimeouts.current.get(userId));
+        activityTimeouts.current.delete(userId);
+      }
+    };
+
+    // Handle student errors being cleared
+    const handleStudentErrorCleared = ({ userId }) => {
+      console.log('Dashboard: Student errors cleared', userId);
+      setStudents(prev => prev.map(student => 
+        student.id === userId && student.status === 'error'
+          ? { ...student, status: 'active', errorMessage: null }
+          : student
+      ));
+
+      // Restart idle timeout
+      resetActivityTimeout(userId);
     };
 
     // Reset activity timeout for a student
@@ -291,6 +311,7 @@ export const DashboardProvider = ({ children, sessionCode }) => {
     socketService.socket.on('code-update', handleCodeUpdate);
     socketService.socket.on('cursor-update', handleCursorUpdate);
     socketService.socket.on('student-error', handleStudentError);
+    socketService.socket.on('student-error-cleared', handleStudentErrorCleared);
 
     return () => {
       socketService.socket.off('session-joined', handleSessionJoined);
@@ -299,6 +320,7 @@ export const DashboardProvider = ({ children, sessionCode }) => {
       socketService.socket.off('code-update', handleCodeUpdate);
       socketService.socket.off('cursor-update', handleCursorUpdate);
       socketService.socket.off('student-error', handleStudentError);
+      socketService.socket.off('student-error-cleared', handleStudentErrorCleared);
     };
   }, [user]);
 

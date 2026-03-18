@@ -7,16 +7,19 @@ import '@xterm/xterm/css/xterm.css';
 /**
  * Terminal Component
  * Interactive terminal using xterm.js with WebSocket connection to backend
- * Use ref to access: start(), sync(), sendCommand(cmd), isConnected
+ * Use ref to access: start(), sync(), sendCommand(cmd), isConnected, refreshFromWorkspace()
  */
 const Terminal = forwardRef(({
         socket,
         sessionCode,
         onSync, // Function to get current files for syncing
+        onWorkspaceUpdate, // Callback when workspace files are read from server
         className = '',
         onReady,
         autoStart = false, // Auto-start terminal when mounted
-        runCommand = null // Command to run after terminal starts
+        runCommand = null, // Command to run after terminal starts
+        readOnly = false, // If true, terminal is read-only (no input sent to server)
+        ownerId = null // If provided, only listen for broadcast events matching this user
 }, ref) => {
         const terminalRef = useRef(null);
         const xtermRef = useRef(null);
@@ -101,44 +104,84 @@ const Terminal = forwardRef(({
 
                 window.addEventListener('resize', handleResize);
 
+                // ResizeObserver to re-fit when the container itself changes size
+                // (e.g. when terminal panel is toggled open)
+                let resizeObserver = null;
+                if (terminalRef.current) {
+                        resizeObserver = new ResizeObserver(() => {
+                                // Small delay to ensure layout is settled
+                                requestAnimationFrame(() => {
+                                        if (fitAddonRef.current) {
+                                                fitAddonRef.current.fit();
+                                        }
+                                });
+                        });
+                        resizeObserver.observe(terminalRef.current);
+                }
+
                 // Welcome message
-                term.writeln('\x1b[1;36m╭─────────────────────────────────────╮\x1b[0m');
-                term.writeln('\x1b[1;36m│  \x1b[1;32mCodeSync Terminal\x1b[1;36m                 │\x1b[0m');
-                term.writeln('\x1b[1;36m╰─────────────────────────────────────╯\x1b[0m');
-                term.writeln('');
-                term.writeln('\x1b[90mType commands below. Your files are synced automatically.\x1b[0m');
-                term.writeln('');
+                if (readOnly) {
+                        term.writeln('\x1b[1;36m╭─────────────────────────────────────╮\x1b[0m');
+                        term.writeln('\x1b[1;36m│  \x1b[1;35mTeacher\'s Terminal\x1b[1;36m              │\x1b[0m');
+                        term.writeln('\x1b[1;36m╰─────────────────────────────────────╯\x1b[0m');
+                        term.writeln('');
+                        term.writeln('\x1b[90mWaiting for teacher to start their terminal...\x1b[0m');
+                        term.writeln('\x1b[90mOutput will appear here in real-time.\x1b[0m');
+                        term.writeln('');
+                } else {
+                        term.writeln('\x1b[1;36m╭─────────────────────────────────────╮\x1b[0m');
+                        term.writeln('\x1b[1;36m│  \x1b[1;32mCodeSync Terminal\x1b[1;36m                 │\x1b[0m');
+                        term.writeln('\x1b[1;36m╰─────────────────────────────────────╯\x1b[0m');
+                        term.writeln('');
+                        term.writeln('\x1b[90mType commands below. Your files are synced automatically.\x1b[0m');
+                        term.writeln('');
+                }
 
                 onReady?.(term);
 
                 return () => {
                         window.removeEventListener('resize', handleResize);
+                        if (resizeObserver) resizeObserver.disconnect();
                         term.dispose();
                         xtermRef.current = null;
                 };
         }, []);
 
-        // Socket event handlers
+        // Use a ref for the callback to prevent re-subscribing on every state change
+        const onWorkspaceUpdateRef = useRef(onWorkspaceUpdate);
+        useEffect(() => {
+                onWorkspaceUpdateRef.current = onWorkspaceUpdate;
+        }, [onWorkspaceUpdate]);
+
+        // Set up socket listeners
         useEffect(() => {
                 if (!socket || !xtermRef.current) return;
 
                 const term = xtermRef.current;
 
-                // Handle terminal data from server
+                // Handle incoming data
                 const handleData = ({ data }) => {
                         term.write(data);
                 };
 
-                // Handle terminal started
-                const handleStarted = ({ workspacePath }) => {
-                        setIsConnected(true);
-                        setWorkspacePath(workspacePath);
-                        term.writeln(`\x1b[32m✓ Connected to workspace\x1b[0m`);
-                        term.writeln(`\x1b[90m  ${workspacePath}\x1b[0m`);
-                        term.writeln('');
+                // Handle broadcast data for observing terminals
+                const handleBroadcastData = ({ userId, data }) => {
+                        // Only write if we are observing this specific user
+                        if (ownerId && userId === ownerId) {
+                                term.write(data);
+                        }
                 };
 
-                // Handle terminal error
+                // Handle terminal started
+                const handleStarted = ({ message, workspacePath }) => {
+                        term.writeln(`\x1b[32m${message}\x1b[0m`);
+                        if (workspacePath) {
+                                setWorkspacePath(workspacePath);
+                        }
+                        setIsConnected(true);
+                };
+
+                // Handle errors
                 const handleError = ({ message }) => {
                         term.writeln(`\x1b[31mError: ${message}\x1b[0m`);
                 };
@@ -147,6 +190,12 @@ const Terminal = forwardRef(({
                 const handleExit = ({ exitCode }) => {
                         term.writeln(`\x1b[90mProcess exited with code ${exitCode}\x1b[0m`);
                         setIsConnected(false);
+                };
+
+                const handleExitBroadcast = ({ userId, exitCode }) => {
+                        if (ownerId && userId === ownerId) {
+                                term.writeln(`\x1b[90mProcess exited with code ${exitCode}\x1b[0m`);
+                        }
                 };
 
                 // Handle terminal killed
@@ -160,26 +209,40 @@ const Terminal = forwardRef(({
                         setWorkspacePath(workspacePath);
                 };
 
+                // Handle workspace data from server (reverse sync)
+                const handleWorkspaceData = (data) => {
+                        console.log('📂 Received workspace data:', data.stats);
+                        if (onWorkspaceUpdateRef.current) {
+                                onWorkspaceUpdateRef.current(data);
+                        }
+                };
+
                 socket.on('terminal-data', handleData);
+                socket.on('terminal-data-broadcast', handleBroadcastData);
                 socket.on('terminal-started', handleStarted);
                 socket.on('terminal-error', handleError);
                 socket.on('terminal-exit', handleExit);
+                socket.on('terminal-exit-broadcast', handleExitBroadcast);
                 socket.on('terminal-killed', handleKilled);
                 socket.on('terminal-synced', handleSynced);
+                socket.on('terminal-workspace-data', handleWorkspaceData);
 
                 return () => {
                         socket.off('terminal-data', handleData);
+                        socket.off('terminal-data-broadcast', handleBroadcastData);
                         socket.off('terminal-started', handleStarted);
                         socket.off('terminal-error', handleError);
                         socket.off('terminal-exit', handleExit);
+                        socket.off('terminal-exit-broadcast', handleExitBroadcast);
                         socket.off('terminal-killed', handleKilled);
                         socket.off('terminal-synced', handleSynced);
+                        socket.off('terminal-workspace-data', handleWorkspaceData);
                 };
-        }, [socket]);
+        }, [socket, ownerId]); // Add ownerId to dependencies
 
         // Handle terminal input
         useEffect(() => {
-                if (!socket || !xtermRef.current || !isConnected) return;
+                if (!socket || !xtermRef.current || !isConnected || readOnly) return;
 
                 const term = xtermRef.current;
 
@@ -263,6 +326,11 @@ const Terminal = forwardRef(({
                 sendCommand: (cmd) => {
                         if (!socket || !isConnected) return;
                         socket.emit('terminal-input', { data: cmd + '\r' });
+                },
+                refreshFromWorkspace: () => {
+                        if (!socket) return;
+                        console.log('📂 Requesting workspace files from server...');
+                        socket.emit('terminal-read-workspace');
                 },
                 isConnected: () => isConnected,
                 term: () => xtermRef.current
@@ -351,37 +419,60 @@ const Terminal = forwardRef(({
                                                 </button>
                                         ) : (
                                                 <>
-                                                        <button
-                                                                onClick={syncFiles}
-                                                                className="p-1 hover:bg-[#313244] rounded text-[#6c7086] hover:text-[#cdd6f4] transition-colors"
-                                                                title="Sync files to workspace"
-                                                        >
-                                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                        <path d="M21 12a9 9 0 11-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-                                                                        <path d="M21 3v5h-5" />
-                                                                </svg>
-                                                        </button>
+                                                        {!readOnly && (
+                                                                <>
+                                                                        <button
+                                                                                onClick={syncFiles}
+                                                                                className="p-1 hover:bg-[#313244] rounded text-[#6c7086] hover:text-[#cdd6f4] transition-colors"
+                                                                                title="Sync files to workspace"
+                                                                        >
+                                                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                        <path d="M21 12a9 9 0 11-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                                                                                        <path d="M21 3v5h-5" />
+                                                                                </svg>
+                                                                        </button>
+                                                                        <button
+                                                                                onClick={() => {
+                                                                                        if (socket) {
+                                                                                                console.log('📂 Requesting workspace files from server...');
+                                                                                                socket.emit('terminal-read-workspace');
+                                                                                        }
+                                                                                }}
+                                                                                className="p-1 hover:bg-[#313244] rounded text-[#6c7086] hover:text-blue-400 transition-colors"
+                                                                                title="Import files from workspace into editor"
+                                                                        >
+                                                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                                                                                        <polyline points="7 10 12 15 17 10" />
+                                                                                        <line x1="12" y1="15" x2="12" y2="3" />
+                                                                                </svg>
+                                                                        </button>
+                                                                </>
+                                                        )}
                                                         <button
                                                                 onClick={clear}
                                                                 className="p-1 hover:bg-[#313244] rounded text-[#6c7086] hover:text-[#cdd6f4] transition-colors"
                                                                 title="Clear terminal"
                                                         >
                                                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
                                                                         <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
                                                                         <line x1="9" y1="9" x2="15" y2="15" />
                                                                         <line x1="15" y1="9" x2="9" y2="15" />
                                                                 </svg>
                                                         </button>
-                                                        <button
-                                                                onClick={killTerminal}
-                                                                className="p-1 hover:bg-red-500/20 rounded text-[#6c7086] hover:text-red-400 transition-colors"
-                                                                title="Kill terminal"
-                                                        >
-                                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                                                                        <rect x="7" y="7" width="10" height="10" fill="currentColor" />
-                                                                </svg>
-                                                        </button>
+                                                        {!readOnly && (
+                                                                <button
+                                                                        onClick={killTerminal}
+                                                                        className="p-1 hover:bg-red-500/20 rounded text-[#6c7086] hover:text-red-400 transition-colors"
+                                                                        title="Kill terminal"
+                                                                >
+                                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                                                                                <rect x="7" y="7" width="10" height="10" fill="currentColor" />
+                                                                        </svg>
+                                                                </button>
+                                                        )}
                                                 </>
                                         )}
                                 </div>
@@ -391,7 +482,7 @@ const Terminal = forwardRef(({
                         <div
                                 ref={terminalRef}
                                 className="flex-1 p-2"
-                                style={{ minHeight: '200px' }}
+                                style={{ minHeight: 0, overflow: 'hidden' }}
                         />
                 </div>
         );

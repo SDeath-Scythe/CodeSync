@@ -2,40 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
         Code2,
-        Settings,
-        Bell,
         Menu,
-        ChevronDown,
-        Search,
-        Layout,
-        Maximize2,
-        LogOut,
-        Moon,
-        Sun,
         Zap,
         LayoutDashboard
 } from 'lucide-react';
-import { useTheme } from '../context/ThemeContext';
-import { useToast } from './ToastProvider';
 
 const TopBar = ({
         appName = "CodeSync",
         sessionTitle = "Intro to React - Week 4: State Management",
-        user = {
-                name: "Mr. Davis",
-                role: "Instructor",
-                avatarUrl: "https://i.pravatar.cc/150?u=davis"
-        },
         showDashboardButton = false,
-        onMenuClick,
-        onLayoutClick,
-        onNotificationsClick,
-        onProfileClick
+        onMenuClick
 }) => {
         const [currentTime, setCurrentTime] = useState(new Date());
-        const [showProfileMenu, setShowProfileMenu] = useState(false);
-        const { theme, toggleTheme } = useTheme();
-        const toast = useToast();
         const navigate = useNavigate();
 
         useEffect(() => {
@@ -49,25 +27,6 @@ const TopBar = ({
                 hour: '2-digit',
                 minute: '2-digit'
         });
-
-        const handleThemeToggle = () => {
-                toggleTheme();
-                toast.success('Theme Changed', `Switched to ${theme === 'dark' ? 'light' : 'dark'} mode`);
-        };
-
-        const handleNotifications = () => {
-                toast.info('Notifications', 'No new notifications');
-        };
-
-        const handleLogout = () => {
-                toast.success('Signed Out', 'You have been signed out successfully');
-                setTimeout(() => navigate('/'), 500);
-        };
-
-        const handleSettings = () => {
-                toast.info('Settings', 'Settings panel coming soon!');
-                setShowProfileMenu(false);
-        };
 
         return (
                 <header className="h-14 bg-zinc-900/80 backdrop-blur-xl border-b border-zinc-700/50 flex items-center justify-between px-4 select-none text-zinc-300 font-sans relative shadow-lg z-50">
@@ -139,79 +98,6 @@ const TopBar = ({
                                                         <LayoutDashboard className="w-4 h-4" />
                                                         <span className="hidden lg:inline text-xs font-medium">Dashboard</span>
                                                 </button>
-                                        )}
-                                        <button 
-                                                onClick={handleThemeToggle}
-                                                className="p-2.5 hover:bg-zinc-800 rounded-xl transition-all text-zinc-400 hover:text-indigo-400 hover:shadow-lg hover:shadow-indigo-500/10" 
-                                                title="Toggle theme"
-                                        >
-                                                {theme === 'dark' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
-                                        </button>
-                                        <button 
-                                                onClick={onLayoutClick}
-                                                className="p-2.5 hover:bg-zinc-800 rounded-xl transition-all text-zinc-400 hover:text-indigo-400" 
-                                                title="Layout"
-                                        >
-                                                <Layout className="w-4 h-4" />
-                                        </button>
-                                        <button 
-                                                onClick={handleNotifications}
-                                                className="p-2.5 hover:bg-zinc-800 rounded-xl transition-all relative text-zinc-400 hover:text-indigo-400" 
-                                                title="Notifications"
-                                        >
-                                                <Bell className="w-4 h-4" />
-                                                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-zinc-900" />
-                                        </button>
-                                </div>
-
-                                {/* User Profile */}
-                                <div className="relative">
-                                        <div 
-                                                onClick={() => setShowProfileMenu(!showProfileMenu)}
-                                                className="flex items-center gap-3 cursor-pointer hover:bg-zinc-800/80 p-2 pr-3 rounded-xl transition-all group"
-                                        >
-                                                <div className="text-right hidden sm:block">
-                                                        <div className="text-sm font-semibold text-zinc-200 group-hover:text-white transition-colors">
-                                                                {user.name}
-                                                        </div>
-                                                        <div className="text-[10px] text-indigo-400 font-semibold uppercase tracking-wider">
-                                                                {user.role}
-                                                        </div>
-                                                </div>
-
-                                                <div className="relative">
-                                                        <img
-                                                                src={user.avatarUrl}
-                                                                alt={user.name}
-                                                                className="w-9 h-9 rounded-xl border-2 border-zinc-700 group-hover:border-indigo-500/50 object-cover transition-all"
-                                                        />
-                                                        <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 border-2 border-zinc-900 rounded-full" />
-                                                </div>
-                                                <ChevronDown className={`w-4 h-4 text-zinc-500 transition-transform ${showProfileMenu ? 'rotate-180' : ''}`} />
-                                        </div>
-
-                                        {/* Dropdown Menu */}
-                                        {showProfileMenu && (
-                                                <div className="absolute right-0 top-full mt-2 w-56 bg-zinc-900/95 backdrop-blur-xl border border-zinc-700/50 rounded-xl shadow-2xl shadow-black/50 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
-                                                        <div className="px-4 py-3 border-b border-zinc-700/50">
-                                                                <p className="text-sm font-semibold text-white">{user.name}</p>
-                                                                <p className="text-xs text-zinc-500">{user.role}</p>
-                                                        </div>
-                                                        <button 
-                                                                onClick={handleSettings}
-                                                                className="w-full px-4 py-2.5 text-left text-sm text-zinc-400 hover:text-white hover:bg-zinc-800/50 flex items-center gap-3 transition-colors"
-                                                        >
-                                                                <Settings className="w-4 h-4" />
-                                                                Settings
-                                                        </button>
-                                                        <button 
-                                                                onClick={handleLogout}
-                                                                className="w-full px-4 py-2.5 text-left text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 flex items-center gap-3 transition-colors"
-                                                        >
-                                                                <LogOut className="w-4 h-4" />
-                                                                Sign Out
-                                                        </button>
-                                                </div>
                                         )}
                                 </div>
                         </div>

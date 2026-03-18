@@ -89,7 +89,7 @@ const LocalCodeEditor = ({ isFullscreen = false, onToggleFullscreen }) => {
   const breadcrumbs = activeFile ? getFilePath(activeFileId)?.split('/') || [] : [];
 
   // Collaboration (send local edits to server when in session)
-  const { sendCodeChange, isConnected } = useCollaboration();
+  const { sendCodeChange, isConnected, pendingChanges, consumePendingChanges } = useCollaboration();
 
   // Handle editor change
   const handleEditorChange = (value) => {
@@ -115,6 +115,37 @@ const LocalCodeEditor = ({ isFullscreen = false, onToggleFullscreen }) => {
     monacoRef.current = monaco;
     monaco.editor.setTheme('vs-dark');
   };
+
+  // Listen for incoming code changes from other users (e.g. Teacher helping)
+  useEffect(() => {
+    if (!activeFileId || !editorRef.current) return;
+
+    // Filter changes for this file
+    // Note: The file ID might be the path itself in local context, or a generated ID
+    // We compare with activeFileId
+    const changes = pendingChanges.filter(c => c.fileId === activeFileId);
+    if (changes.length === 0) return;
+
+    const latestChange = changes[changes.length - 1];
+    const editor = editorRef.current;
+
+    if (!editor) return;
+    const model = editor.getModel();
+
+    // Safely inject the text without moving the local cursor
+    if (latestChange.content !== model.getValue()) {
+      editor.executeEdits("remote-sync", [{
+        range: model.getFullModelRange(),
+        text: latestChange.content,
+        forceMoveMarkers: true
+      }]);
+
+      // Update local context
+      updateFileContent(activeFileId, latestChange.content);
+    }
+
+    consumePendingChanges(activeFileId);
+  }, [pendingChanges, activeFileId, updateFileContent, consumePendingChanges]);
 
   // Tab close handler
   const handleCloseTab = (e, fileId) => {
@@ -162,11 +193,10 @@ const LocalCodeEditor = ({ isFullscreen = false, onToggleFullscreen }) => {
             <div
               key={file.id}
               onClick={() => setActiveFileId(file.id)}
-              className={`group relative flex items-center gap-2 px-3 h-full text-[13px] cursor-pointer border-r border-green-500/10 min-w-[100px] max-w-[180px] ${
-                isActive
+              className={`group relative flex items-center gap-2 px-3 h-full text-[13px] cursor-pointer border-r border-green-500/10 min-w-[100px] max-w-[180px] ${isActive
                   ? 'bg-zinc-800/60 text-green-300 border-t-2 border-t-green-500'
                   : 'text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200'
-              }`}
+                }`}
             >
               <span className={`text-[10px] font-bold ${iconInfo.color}`}>{iconInfo.icon}</span>
               <span className="truncate">{file.name}</span>
@@ -222,7 +252,7 @@ const LocalCodeEditor = ({ isFullscreen = false, onToggleFullscreen }) => {
             height="100%"
             language={getLanguage(activeFile.name)}
             theme="vs-dark"
-            value={codeContent}
+            defaultValue={codeContent}
             onChange={handleEditorChange}
             onMount={handleEditorDidMount}
             path={'local:///' + activeFile.name}
