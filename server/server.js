@@ -38,6 +38,10 @@ const PORT = process.env.PORT || 3001;
 // JWT secret
 const JWT_SECRET = process.env.JWT_SECRET || 'codesync-secret-key-change-in-production';
 
+// In-memory snapshot storage per session
+// { [sessionCode]: { files, fileContents, timestamp, teacherName } }
+const sessionSnapshots = {};
+
 app.use(cors({
   origin: ['http://localhost:5173', 'http://localhost:5174'],
   credentials: true
@@ -989,6 +993,26 @@ io.on('connection', (socket) => {
         return;
       }
 
+      // Check session user limit (1 teacher + 20 students = 21 max)
+      const MAX_SESSION_USERS = 21;
+      const existingUsers = sessionUsers.get(sessionCode.toUpperCase());
+      if (existingUsers) {
+        // Count unique user IDs (not sockets — same user may have multiple tabs)
+        const uniqueUserIds = new Set(
+          Array.from(existingUsers.values()).map(u => u.id)
+        );
+        // Allow if this user is already in the session (reconnecting)
+        const isReconnecting = uniqueUserIds.has(user.id);
+        if (!isReconnecting && uniqueUserIds.size >= MAX_SESSION_USERS) {
+          console.log(`🚫 Session ${sessionCode} is full (${uniqueUserIds.size}/${MAX_SESSION_USERS}). Rejected ${user.name}`);
+          socket.emit('session-full', {
+            message: `Session is full (max ${MAX_SESSION_USERS} participants). Please try again later.`,
+            maxUsers: MAX_SESSION_USERS
+          });
+          return;
+        }
+      }
+
       currentSession = sessionCode.toUpperCase();
       currentUser = user;
 
@@ -1307,6 +1331,56 @@ io.on('connection', (socket) => {
     if (!currentSession || !currentUser) return;
     console.log(`👁️ ${currentUser.name} toggled remote cursors: ${enabled}`);
     socket.to(currentSession).emit('toggle-remote-cursors', { enabled });
+  });
+
+  // ============================================
+  // WORKSPACE SNAPSHOT EVENTS
+  // ============================================
+
+  // Teacher creates a snapshot of their workspace
+  socket.on('create-snapshot', ({ files, fileContents }) => {
+    if (!currentSession || !currentUser) return;
+    const timestamp = new Date().toISOString();
+    sessionSnapshots[currentSession] = {
+      files,
+      fileContents,
+      timestamp,
+      teacherName: currentUser.name
+    };
+    console.log(`📸 Snapshot created by ${currentUser.name} for session ${currentSession} at ${timestamp}`);
+    // Broadcast to all participants that a snapshot is available
+    io.to(currentSession).emit('snapshot-available', {
+      timestamp,
+      teacherName: currentUser.name
+    });
+  });
+
+  // Student (or anyone) requests the snapshot data
+  socket.on('get-snapshot', () => {
+    if (!currentSession) return;
+    const snapshot = sessionSnapshots[currentSession];
+    if (snapshot) {
+      socket.emit('snapshot-data', {
+        files: snapshot.files,
+        fileContents: snapshot.fileContents,
+        timestamp: snapshot.timestamp,
+        teacherName: snapshot.teacherName
+      });
+    } else {
+      socket.emit('snapshot-data', null);
+    }
+  });
+
+  // Check if a snapshot exists (used on join)
+  socket.on('check-snapshot', () => {
+    if (!currentSession) return;
+    const snapshot = sessionSnapshots[currentSession];
+    if (snapshot) {
+      socket.emit('snapshot-available', {
+        timestamp: snapshot.timestamp,
+        teacherName: snapshot.teacherName
+      });
+    }
   });
 
   // ============================================

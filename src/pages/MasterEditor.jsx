@@ -54,7 +54,7 @@ const PanelHeader = ({ title, onClose, children, className = '' }) => (
 // Inner editor component that uses the save hook (must be inside FileSystemProvider)
 function MasterEditorContent({ sessionInfo }) {
         const navigate = useNavigate();
-        const { joinSession, currentSession, loadSessionFromDb, socket } = useCollaboration();
+        const { joinSession, currentSession, participants, loadSessionFromDb, socket } = useCollaboration();
         const fileSystem = useFileSystem();
         const { loadFromSession, fileStructure, fileContents, activeFileId, findItemById, mergeWorkspaceFiles, setFileContent } = fileSystem;
         const { isSaving, lastSaved } = useSaveSession();
@@ -68,6 +68,7 @@ function MasterEditorContent({ sessionInfo }) {
         const [fullscreenMode, setFullscreenMode] = useState(null);
         const [terminalHeight, setTerminalHeight] = useState(250);
         const [pendingRunCommand, setPendingRunCommand] = useState(null);
+        const [snapshotTimestamp, setSnapshotTimestamp] = useState(null);
         const [autoStartTerminal, setAutoStartTerminal] = useState(false);
 
         // Terminal ref for programmatic control
@@ -256,6 +257,32 @@ function MasterEditorContent({ sessionInfo }) {
         const showCodeEditor = fullscreenMode !== 'classroom';
         const showClassroomPanel = fullscreenMode === 'classroom' || (fullscreenMode === null && showClassroom);
 
+        // Snapshot: take a snapshot of current workspace
+        const handleCreateSnapshot = useCallback(() => {
+                if (!socket) return;
+                socket.emit('create-snapshot', {
+                        files: fileStructure,
+                        fileContents: fileContents
+                });
+        }, [socket, fileStructure, fileContents]);
+
+        // Listen for snapshot-available to update timestamp
+        useEffect(() => {
+                if (!socket) return;
+                const handleSnapshotAvailable = ({ timestamp }) => {
+                        setSnapshotTimestamp(timestamp);
+                };
+                socket.on('snapshot-available', handleSnapshotAvailable);
+                return () => socket.off('snapshot-available', handleSnapshotAvailable);
+        }, [socket]);
+
+        // Format snapshot time for display
+        const formatSnapshotTime = (iso) => {
+                if (!iso) return null;
+                const d = new Date(iso);
+                return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        };
+
         return (
                 <div className="flex flex-col h-screen w-screen bg-gradient-to-br from-zinc-950 via-zinc-900 to-indigo-950 text-white overflow-hidden font-sans">
 
@@ -297,6 +324,10 @@ function MasterEditorContent({ sessionInfo }) {
                                         showDashboardButton={true}
                                         isSaving={isSaving}
                                         lastSaved={lastSaved}
+                                        participantCount={participants.length}
+                                        maxParticipants={21}
+                                        onCreateSnapshot={handleCreateSnapshot}
+                                        snapshotTimestamp={snapshotTimestamp}
                                 />
                         </div>
 

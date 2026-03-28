@@ -21,6 +21,7 @@ export const CollaborationProvider = ({ children }) => {
   const [currentSession, setCurrentSession] = useState(null);
   const [participants, setParticipants] = useState([]);
   const [isConnected, setIsConnected] = useState(false);
+  const [sessionError, setSessionError] = useState(null);
 
   // Chat state
   const [messages, setMessages] = useState([]);
@@ -119,6 +120,15 @@ export const CollaborationProvider = ({ children }) => {
       window.dispatchEvent(new CustomEvent('remote-file-renamed', { detail: { oldPath, newPath, newName, userId } }));
     });
 
+    // Session full (user limit reached)
+    if (socketService.socket) {
+      socketService.socket.on('session-full', ({ message }) => {
+        console.error('🚫 Session full:', message);
+        setSessionError(message);
+        setIsConnected(false);
+      });
+    }
+
     return () => {
       socketService.removeAllListeners();
     };
@@ -127,6 +137,7 @@ export const CollaborationProvider = ({ children }) => {
   // Join a session
   const joinSession = useCallback((sessionCode) => {
     setCurrentSession(sessionCode);
+    setSessionError(null); // Clear any previous error
     socketService.joinSession(sessionCode);
 
     // Load existing messages from API
@@ -268,6 +279,7 @@ export const CollaborationProvider = ({ children }) => {
     currentSession,
     participants,
     isConnected,
+    sessionError,
     joinSession,
     leaveSession,
 
@@ -303,6 +315,7 @@ export const CollaborationProvider = ({ children }) => {
     currentSession,
     participants,
     isConnected,
+    sessionError,
     joinSession,
     leaveSession,
     messages,

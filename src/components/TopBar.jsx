@@ -4,16 +4,25 @@ import {
         Code2,
         Menu,
         Zap,
-        LayoutDashboard
+        LayoutDashboard,
+        Users,
+        Camera
 } from 'lucide-react';
 
 const TopBar = ({
         appName = "CodeSync",
         sessionTitle = "Intro to React - Week 4: State Management",
         showDashboardButton = false,
-        onMenuClick
+        onMenuClick,
+        // Participant count
+        participantCount = 0,
+        maxParticipants = 21,
+        // Snapshot (teacher only)
+        onCreateSnapshot,
+        snapshotTimestamp
 }) => {
         const [currentTime, setCurrentTime] = useState(new Date());
+        const [snapshotFlash, setSnapshotFlash] = useState(false);
         const navigate = useNavigate();
 
         useEffect(() => {
@@ -27,6 +36,20 @@ const TopBar = ({
                 hour: '2-digit',
                 minute: '2-digit'
         });
+
+        const formatSnapshotTime = (iso) => {
+                if (!iso) return null;
+                const d = new Date(iso);
+                return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        };
+
+        const handleSnapshot = () => {
+                if (onCreateSnapshot) {
+                        onCreateSnapshot();
+                        setSnapshotFlash(true);
+                        setTimeout(() => setSnapshotFlash(false), 600);
+                }
+        };
 
         return (
                 <header className="h-14 bg-zinc-900/80 backdrop-blur-xl border-b border-zinc-700/50 flex items-center justify-between px-4 select-none text-zinc-300 font-sans relative shadow-lg z-50">
@@ -78,8 +101,44 @@ const TopBar = ({
                                 </div>
                         </div>
 
-                        {/* RIGHT: Utilities & Profile */}
-                        <div className="flex items-center gap-3 shrink-0 z-10">
+                        {/* RIGHT: Utilities */}
+                        <div className="flex items-center gap-2 shrink-0 z-10">
+
+                                {/* Participant Count */}
+                                {participantCount > 0 && (
+                                        <div 
+                                                className="flex items-center gap-2 text-xs font-medium bg-zinc-800/50 px-3 py-2 rounded-xl border border-zinc-700/50"
+                                                title={`${participantCount} of ${maxParticipants} participants`}
+                                        >
+                                                <Users className="w-3.5 h-3.5 text-indigo-400" />
+                                                <span className="tabular-nums text-zinc-300">
+                                                        {participantCount}<span className="text-zinc-600">/{maxParticipants}</span>
+                                                </span>
+                                        </div>
+                                )}
+
+                                {/* Snapshot Button (teacher only) */}
+                                {onCreateSnapshot && (
+                                        <button
+                                                onClick={handleSnapshot}
+                                                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold transition-all border ${
+                                                        snapshotFlash
+                                                                ? 'bg-emerald-500/30 border-emerald-500/50 text-emerald-300 scale-95'
+                                                                : 'bg-indigo-600/15 hover:bg-indigo-600/30 border-indigo-500/30 text-indigo-300 hover:text-indigo-200'
+                                                }`}
+                                                title={snapshotTimestamp 
+                                                        ? `Last snapshot: ${formatSnapshotTime(snapshotTimestamp)} — Click to update`
+                                                        : 'Take a snapshot of your workspace for students to copy'}
+                                        >
+                                                <Camera className={`w-3.5 h-3.5 ${snapshotFlash ? 'animate-pulse' : ''}`} />
+                                                <span className="hidden lg:inline">Snapshot</span>
+                                                {snapshotTimestamp && (
+                                                        <span className="text-[9px] text-zinc-500 font-normal hidden lg:inline">
+                                                                {formatSnapshotTime(snapshotTimestamp)}
+                                                        </span>
+                                                )}
+                                        </button>
+                                )}
 
                                 {/* Clock */}
                                 <div className="hidden lg:flex items-center gap-2 text-sm font-medium text-zinc-400 bg-zinc-800/50 px-4 py-2 rounded-xl border border-zinc-700/50">
@@ -87,19 +146,17 @@ const TopBar = ({
                                         <span className="tabular-nums">{formattedTime}</span>
                                 </div>
 
-                                {/* Action Icons */}
-                                <div className="flex items-center gap-1 border-r border-zinc-700/50 pr-3 mr-1">
-                                        {showDashboardButton && (
-                                                <button 
-                                                        onClick={() => navigate('/dashboard')}
-                                                        className="p-2.5 hover:bg-zinc-800 rounded-xl transition-all text-zinc-400 hover:text-indigo-400 hover:shadow-lg hover:shadow-indigo-500/10 flex items-center gap-2" 
-                                                        title="Go to Dashboard"
-                                                >
-                                                        <LayoutDashboard className="w-4 h-4" />
-                                                        <span className="hidden lg:inline text-xs font-medium">Dashboard</span>
-                                                </button>
-                                        )}
-                                </div>
+                                {/* Dashboard Button */}
+                                {showDashboardButton && (
+                                        <button 
+                                                onClick={() => navigate('/dashboard')}
+                                                className="p-2.5 hover:bg-zinc-800 rounded-xl transition-all text-zinc-400 hover:text-indigo-400 hover:shadow-lg hover:shadow-indigo-500/10 flex items-center gap-2" 
+                                                title="Go to Dashboard"
+                                        >
+                                                <LayoutDashboard className="w-4 h-4" />
+                                                <span className="hidden lg:inline text-xs font-medium">Dashboard</span>
+                                        </button>
+                                )}
                         </div>
                 </header>
         );

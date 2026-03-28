@@ -21,7 +21,7 @@ import useLocalSaveSession from '../hooks/useLocalSaveSession';
 function StudentClassroomContent({ sessionInfo }) {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { joinSession, currentSession, isConnected, loadSessionFromDb, loadTeacherFilesFromDb, socket } = useCollaboration();
+  const { joinSession, currentSession, participants, isConnected, sessionError, loadSessionFromDb, loadTeacherFilesFromDb, socket } = useCollaboration();
   const globalFS = useFileSystem();
   const { loadFromSession: loadTeacherFiles } = globalFS; // For teacher's code (read-only)
   const localFS = useLocalFileSystem();
@@ -41,6 +41,7 @@ function StudentClassroomContent({ sessionInfo }) {
   const [showTerminal, setShowTerminal] = useState(false); // Terminal toggle state
   const [pendingRunCommand, setPendingRunCommand] = useState(null);
   const [showCursors, setShowCursors] = useState(true); // Synced with teacher's toggle
+  const [snapshotInfo, setSnapshotInfo] = useState(null); // { timestamp, teacherName }
 
   // Helper to get student files for terminal sync
   // Uses localFS fileStructure and fileContents
@@ -140,6 +141,47 @@ function StudentClassroomContent({ sessionInfo }) {
     return () => socket.off('toggle-remote-cursors', handleToggleCursors);
   }, [socket]);
 
+  // Snapshot: listen for availability and check on join
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleSnapshotAvailable = ({ timestamp, teacherName }) => {
+      console.log('📸 Snapshot available:', timestamp, teacherName);
+      setSnapshotInfo({ timestamp, teacherName });
+    };
+
+    socket.on('snapshot-available', handleSnapshotAvailable);
+
+    // Check if a snapshot already exists when we join
+    socket.emit('check-snapshot');
+
+    return () => socket.off('snapshot-available', handleSnapshotAvailable);
+  }, [socket]);
+
+  // Copy teacher's snapshot into student's local workspace
+  const handleCopySnapshot = useCallback(() => {
+    if (!socket) return;
+
+    const handleSnapshotData = (data) => {
+      if (data && data.files) {
+        console.log('📸 Copying teacher snapshot into local workspace');
+        // Use loadFromSession with the tree structure to replace all files
+        loadStudentFiles(data.files, data.fileContents);
+      }
+      socket.off('snapshot-data', handleSnapshotData);
+    };
+
+    socket.on('snapshot-data', handleSnapshotData);
+    socket.emit('get-snapshot');
+  }, [socket, loadStudentFiles]);
+
+  // Format snapshot time for display
+  const formatSnapshotTime = (iso) => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
   // Load BOTH teacher's files and student's files after joining session
   useEffect(() => {
     if (currentSession && !filesLoadedRef.current) {
@@ -207,6 +249,31 @@ function StudentClassroomContent({ sessionInfo }) {
   return (
     <div className="flex flex-col h-screen w-screen bg-gradient-to-br from-zinc-950 via-zinc-900 to-indigo-950 text-white overflow-hidden font-sans">
 
+      {/* Session Full Overlay */}
+      {sessionError && (
+        <div className="absolute inset-0 z-[110] bg-zinc-950/95 backdrop-blur-sm flex items-center justify-center">
+          <div className="flex flex-col items-center gap-6 p-8 rounded-2xl bg-zinc-900/80 border border-red-500/30 shadow-2xl max-w-md text-center">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center shadow-lg shadow-red-500/20">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="15" y1="9" x2="9" y2="15"/>
+                <line x1="9" y1="9" x2="15" y2="15"/>
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-white mb-2">Session Full</h3>
+              <p className="text-sm text-zinc-400">{sessionError}</p>
+            </div>
+            <button
+              onClick={() => navigate('/')}
+              className="px-6 py-2 bg-red-600/20 hover:bg-red-600/40 text-red-300 border border-red-500/30 rounded-lg text-sm font-medium transition-all"
+            >
+              Back to Home
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* File Loading Overlay */}
       {isLoadingFiles && (
         <div className="absolute inset-0 z-[100] bg-zinc-950/90 backdrop-blur-sm flex items-center justify-center">
@@ -244,6 +311,8 @@ function StudentClassroomContent({ sessionInfo }) {
           sessionTitle={sessionInfo?.name || currentSession || 'Classroom'}
           isSaving={isSaving}
           lastSaved={lastSaved}
+          participantCount={participants.length}
+          maxParticipants={21}
         />
       </div>
 
@@ -319,6 +388,28 @@ function StudentClassroomContent({ sessionInfo }) {
               )}
             </button>
             <div className="flex-1" />
+
+            {/* Copy Snapshot Button */}
+            {snapshotInfo && (
+              <button
+                onClick={handleCopySnapshot}
+                className="flex items-center gap-2 px-3 py-1 mr-2 bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/30 rounded-lg text-[11px] font-semibold transition-all"
+                title={`Copy ${snapshotInfo.teacherName}'s workspace snapshot into your workspace (replaces your current files)`}
+              >
+                <div className="relative">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                    <circle cx="12" cy="13" r="4"/>
+                  </svg>
+                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-amber-400 rounded-full animate-ping" />
+                </div>
+                Copy Teacher's Files
+                <span className="text-[9px] text-amber-400/70 font-normal">
+                  {formatSnapshotTime(snapshotInfo.timestamp)}
+                </span>
+              </button>
+            )}
+
             <span className={`text-[10px] px-2 py-1 rounded ${activeEditorTab === 'teacher'
               ? 'bg-indigo-500/20 text-indigo-300'
               : 'bg-green-500/20 text-green-300'
