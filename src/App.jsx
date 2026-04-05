@@ -7,6 +7,7 @@ import { CollaborationProvider } from './context/CollaborationContext'
 import { CallProvider } from './context/CallContext'
 import LoginPage from './pages/LoginPage'
 import AuthCallback from './pages/AuthCallback'
+import ChooseRolePage from './pages/ChooseRolePage'
 import SessionHub from './pages/SessionHub'
 import MasterEditor from './pages/MasterEditor'
 import MasterDashboard from './pages/MasterDashboard'
@@ -14,7 +15,7 @@ import StudentClassroom from './pages/StudentClassroom'
 
 // Protected route wrapper for teachers
 const TeacherRoute = ({ children }) => {
-  const { isAuthenticated, isTeacher, loading } = useAuth();
+  const { isAuthenticated, isTeacher, user, loading } = useAuth();
   
   if (loading) {
     return <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
@@ -24,6 +25,10 @@ const TeacherRoute = ({ children }) => {
   
   if (!isAuthenticated) {
     return <Navigate to="/" replace />;
+  }
+
+  if (user?.role === 'pending') {
+    return <Navigate to="/choose-role" replace />;
   }
   
   if (!isTeacher) {
@@ -52,7 +57,7 @@ const StudentRoute = ({ children }) => {
 
 // Protected route for authenticated users (both roles)
 const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, user, loading } = useAuth();
   
   if (loading) {
     return <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
@@ -63,13 +68,17 @@ const ProtectedRoute = ({ children }) => {
   if (!isAuthenticated) {
     return <Navigate to="/" replace />;
   }
+
+  if (user?.role === 'pending') {
+    return <Navigate to="/choose-role" replace />;
+  }
   
   return children;
 };
 
 // Public route - redirect if already authenticated
 const PublicRoute = ({ children }) => {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, user, loading } = useAuth();
   
   if (loading) {
     return <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
@@ -78,6 +87,9 @@ const PublicRoute = ({ children }) => {
   }
   
   if (isAuthenticated) {
+    if (user?.role === 'pending') {
+      return <Navigate to="/choose-role" replace />;
+    }
     return <Navigate to="/session" replace />;
   }
   
@@ -90,6 +102,7 @@ function AppRoutes() {
       <Routes>
         <Route path="/" element={<PublicRoute><LoginPage /></PublicRoute>} />
         <Route path="/auth/callback" element={<AuthCallback />} />
+        <Route path="/choose-role" element={<StudentRoute><ChooseRolePage /></StudentRoute>} />
         <Route path="/session" element={<ProtectedRoute><SessionHub /></ProtectedRoute>} />
         <Route path="/editor" element={<TeacherRoute><MasterEditor /></TeacherRoute>} />
         <Route path="/dashboard" element={<TeacherRoute><MasterDashboard /></TeacherRoute>} />

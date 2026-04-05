@@ -26,6 +26,7 @@ const Terminal = forwardRef(({
         const fitAddonRef = useRef(null);
         const [isConnected, setIsConnected] = useState(false);
         const [workspacePath, setWorkspacePath] = useState('');
+        const [confirmAction, setConfirmAction] = useState(null); // 'sync' | 'import' | null
 
         // Refs to prevent duplicate operations
         const isStartingRef = useRef(false);
@@ -256,7 +257,7 @@ const Terminal = forwardRef(({
                 };
         }, [socket, isConnected]);
 
-        // Start terminal session - sync files first, then start
+        // Start terminal session - just start without auto-syncing files
         const startTerminal = useCallback(() => {
                 // Prevent duplicate starts
                 if (isStartingRef.current || isConnected) {
@@ -265,7 +266,7 @@ const Terminal = forwardRef(({
                 }
                 isStartingRef.current = true;
 
-                console.log('📟 startTerminal called', { socket: !!socket, xterm: !!xtermRef.current, onSync: !!onSync });
+                console.log('📟 startTerminal called', { socket: !!socket, xterm: !!xtermRef.current });
                 if (!socket || !xtermRef.current) {
                         isStartingRef.current = false;
                         return;
@@ -273,47 +274,12 @@ const Terminal = forwardRef(({
 
                 const term = xtermRef.current;
 
-                // If we have files to sync, do that first
-                if (onSync) {
-                        const syncData = onSync();
-                        console.log('📁 Syncing files:', {
-                                filesCount: syncData.files?.length,
-                                contentsCount: Object.keys(syncData.fileContents || {}).length,
-                                files: syncData.files
-                        });
-                        socket.emit('terminal-sync', { files: syncData.files, fileContents: syncData.fileContents });
-
-                        // Wait for sync confirmation, then start terminal
-                        const handleSynced = () => {
-                                console.log('✅ Sync confirmed, starting terminal');
-                                socket.off('terminal-synced', handleSynced);
-                                socket.emit('terminal-start', {
-                                        cols: term.cols,
-                                        rows: term.rows
-                                });
-                        };
-                        socket.on('terminal-synced', handleSynced);
-
-                        // Fallback: start anyway after 2 seconds
-                        setTimeout(() => {
-                                socket.off('terminal-synced', handleSynced);
-                                if (!isConnected) {
-                                        console.log('⏱️ Fallback: starting terminal after timeout');
-                                        socket.emit('terminal-start', {
-                                                cols: term.cols,
-                                                rows: term.rows
-                                        });
-                                }
-                        }, 2000);
-                } else {
-                        console.log('⚠️ No onSync, starting terminal directly');
-                        // No files to sync, just start
-                        socket.emit('terminal-start', {
-                                cols: term.cols,
-                                rows: term.rows
-                        });
-                }
-        }, [socket, onSync, isConnected]);
+                // Start terminal directly without syncing
+                socket.emit('terminal-start', {
+                        cols: term.cols,
+                        rows: term.rows
+                });
+        }, [socket, isConnected]);
 
         // Expose methods via ref
         useImperativeHandle(ref, () => ({
@@ -391,7 +357,7 @@ const Terminal = forwardRef(({
         }, []);
 
         return (
-                <div className={`flex flex-col bg-[#1e1e2e] ${className}`}>
+                <div className={`flex flex-col bg-[#1e1e2e] relative ${className}`}>
                         {/* Terminal header */}
                         <div className="flex items-center justify-between px-3 py-1.5 bg-[#181825] border-b border-[#313244]">
                                 <div className="flex items-center gap-2">
@@ -422,9 +388,9 @@ const Terminal = forwardRef(({
                                                         {!readOnly && (
                                                                 <>
                                                                         <button
-                                                                                onClick={syncFiles}
+                                                                                onClick={() => setConfirmAction('sync')}
                                                                                 className="p-1 hover:bg-[#313244] rounded text-[#6c7086] hover:text-[#cdd6f4] transition-colors"
-                                                                                title="Sync files to workspace"
+                                                                                title="Sync editor files to workspace (replaces workspace)"
                                                                         >
                                                                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                                                         <path d="M21 12a9 9 0 11-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
@@ -432,14 +398,9 @@ const Terminal = forwardRef(({
                                                                                 </svg>
                                                                         </button>
                                                                         <button
-                                                                                onClick={() => {
-                                                                                        if (socket) {
-                                                                                                console.log('📂 Requesting workspace files from server...');
-                                                                                                socket.emit('terminal-read-workspace');
-                                                                                        }
-                                                                                }}
+                                                                                onClick={() => setConfirmAction('import')}
                                                                                 className="p-1 hover:bg-[#313244] rounded text-[#6c7086] hover:text-blue-400 transition-colors"
-                                                                                title="Import files from workspace into editor"
+                                                                                title="Import workspace files into editor (replaces editor)"
                                                                         >
                                                                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                                                         <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
@@ -484,6 +445,54 @@ const Terminal = forwardRef(({
                                 className="flex-1 p-2"
                                 style={{ minHeight: 0, overflow: 'hidden' }}
                         />
+
+                        {/* Confirmation Modal */}
+                        {confirmAction && (
+                                <div className="absolute inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+                                        <div className="bg-[#1e1e2e] border border-[#313244] rounded-xl p-5 max-w-sm w-full shadow-2xl">
+                                                <h3 className="text-sm font-bold text-[#cdd6f4] mb-2">
+                                                        {confirmAction === 'sync'
+                                                                ? '⬆️ Sync Editor → Workspace'
+                                                                : '⬇️ Import Workspace → Editor'
+                                                        }
+                                                </h3>
+                                                <p className="text-xs text-[#a6adc8] mb-4">
+                                                        {confirmAction === 'sync'
+                                                                ? 'This will replace ALL files in the server workspace with your current editor files. Any files only in the workspace will be deleted.'
+                                                                : 'This will replace ALL files in your editor with files from the server workspace. Any unsaved editor changes will be lost.'
+                                                        }
+                                                </p>
+                                                <div className="flex gap-2">
+                                                        <button
+                                                                onClick={() => setConfirmAction(null)}
+                                                                className="flex-1 py-1.5 bg-[#313244] hover:bg-[#45475a] rounded-lg text-xs text-[#cdd6f4] transition-colors"
+                                                        >
+                                                                Cancel
+                                                        </button>
+                                                        <button
+                                                                onClick={() => {
+                                                                        if (confirmAction === 'sync') {
+                                                                                syncFiles();
+                                                                        } else if (confirmAction === 'import') {
+                                                                                if (socket) {
+                                                                                        console.log('📂 Requesting workspace files from server...');
+                                                                                        socket.emit('terminal-read-workspace');
+                                                                                }
+                                                                        }
+                                                                        setConfirmAction(null);
+                                                                }}
+                                                                className={`flex-1 py-1.5 rounded-lg text-xs font-semibold text-white transition-colors ${
+                                                                        confirmAction === 'sync'
+                                                                                ? 'bg-amber-600 hover:bg-amber-500'
+                                                                                : 'bg-blue-600 hover:bg-blue-500'
+                                                                }`}
+                                                        >
+                                                                Confirm
+                                                        </button>
+                                                </div>
+                                        </div>
+                                </div>
+                        )}
                 </div>
         );
 });

@@ -8,7 +8,7 @@ import pty from 'node-pty';
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 
 // Store active terminal sessions
 const terminals = new Map();
@@ -22,10 +22,42 @@ if (!fs.existsSync(WORKSPACE_BASE)) {
 }
 
 /**
+ * Get the latest PATH from the system registry (Windows)
+ * This ensures newly installed tools are available even if the server
+ * was started before they were installed.
+ */
+function getFreshPath() {
+        if (os.platform() !== 'win32') return process.env.PATH || '';
+
+        try {
+                // Read the current Machine and User PATH from the registry
+                const machinePath = execSync(
+                        'powershell -NoProfile -Command "[System.Environment]::GetEnvironmentVariable(\'Path\', \'Machine\')"',
+                        { encoding: 'utf-8', timeout: 5000 }
+                ).trim();
+
+                const userPath = execSync(
+                        'powershell -NoProfile -Command "[System.Environment]::GetEnvironmentVariable(\'Path\', \'User\')"',
+                        { encoding: 'utf-8', timeout: 5000 }
+                ).trim();
+
+                return `${machinePath};${userPath}`;
+        } catch (err) {
+                console.warn('⚠️ Could not refresh PATH, using process.env:', err.message);
+                return process.env.Path || process.env.PATH || '';
+        }
+}
+
+/**
  * Create a sanitized environment for the shell
  */
 function createSafeEnv(workspacePath) {
         const safeEnv = { ...process.env };
+
+        // Refresh PATH from system registry to pick up newly installed tools
+        const freshPath = getFreshPath();
+        safeEnv.Path = freshPath;
+        safeEnv.PATH = freshPath;
 
         // Remove sensitive env vars
         const sensitiveVars = [
@@ -151,9 +183,21 @@ export function getWorkspaceDir(sessionCode, userId) {
 }
 
 /**
- * Sync virtual files to the workspace directory
+ * Sync virtual files to the workspace directory (full replace)
+ * Clears existing workspace contents first, then writes the editor files
  */
 export function syncFilesToWorkspace(workspacePath, files, fileContents) {
+        // Clean the workspace first - remove all existing files/folders
+        if (fs.existsSync(workspacePath)) {
+                const entries = fs.readdirSync(workspacePath);
+                for (const entry of entries) {
+                        const entryPath = path.join(workspacePath, entry);
+                        fs.rmSync(entryPath, { recursive: true, force: true });
+                }
+        } else {
+                fs.mkdirSync(workspacePath, { recursive: true });
+        }
+
         const syncItem = (item, currentPath) => {
                 const itemPath = path.join(currentPath, item.name);
 
@@ -450,6 +494,12 @@ export function readWorkspaceToFileStructure(workspacePath, options = {}) {
 
                                 // Skip ignored patterns
                                 if (ignoredPatterns.some(pattern => entry.name === pattern || entry.name.startsWith('.'))) {
+                                        continue;
+                                }
+
+                                // Skip compiled/binary file extensions
+                                const binaryExts = ['.exe', '.o', '.obj', '.out', '.class', '.dll', '.so', '.a', '.lib', '.pdb', '.pyc'];
+                                if (!entry.isDirectory() && binaryExts.some(ext => entry.name.toLowerCase().endsWith(ext))) {
                                         continue;
                                 }
 

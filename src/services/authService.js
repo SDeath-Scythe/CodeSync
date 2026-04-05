@@ -36,8 +36,8 @@ export const authService = {
   },
 
   // Redirect to GitHub OAuth
-  loginWithGitHub() {
-    window.location.href = `${API_URL}/auth/github`;
+  loginWithGitHub(role = 'student') {
+    window.location.href = `${API_URL}/auth/github?role=${encodeURIComponent(role)}`;
   },
 
   // Redirect to Google OAuth
@@ -46,7 +46,7 @@ export const authService = {
   },
 
   // Register with email/password
-  async register(name, email, password, role = 'student') {
+  async register(name, email, password, role = 'pending') {
     const response = await fetch(`${API_URL}/auth/register`, {
       method: 'POST',
       headers: {

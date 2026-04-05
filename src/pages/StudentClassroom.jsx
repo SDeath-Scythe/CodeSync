@@ -52,16 +52,16 @@ function StudentClassroomContent({ sessionInfo }) {
     };
   }, [localFS.fileStructure, localFS.fileContents]);
 
-  // Handle workspace updates from the server's file watcher (reverse sync)
-  // This updates the file explorer when terminal commands create/delete files on disk
+  // Handle workspace updates from the server (full replace - import from workspace)
+  // This replaces the file explorer when "Import from workspace" is clicked
   const handleWorkspaceUpdate = useCallback((data) => {
-    console.log('📂 Student workspace update from server:', data.stats);
-    if (localFS.mergeWorkspaceFiles) {
-      localFS.mergeWorkspaceFiles(data.files, data.fileContents);
+    console.log('📂 Student: replacing editor files with workspace:', data.stats);
+    if (loadStudentFiles) {
+      loadStudentFiles(data.files, data.fileContents);
     }
-  }, [localFS.mergeWorkspaceFiles]);
+  }, [loadStudentFiles]);
 
-  // Handle Run Code
+  // Handle Run Code - syncs files to workspace, then runs
   const handleRunCode = useCallback(() => {
     const { activeFileId, findItemById, fileStructure, getFilePath } = localFS;
     if (!activeFileId || !socket) return;
@@ -70,33 +70,48 @@ function StudentClassroomContent({ sessionInfo }) {
     const file = findItemById(fileStructure, activeFileId);
     if (!file) return;
 
-    // Get path
+    // Get path and extract directory + filename
     const filePath = getFilePath(activeFileId) || file.name;
+    const lastSlash = filePath.lastIndexOf('/');
+    const fileDir = lastSlash > 0 ? filePath.substring(0, lastSlash) : '';
+    const fileName = lastSlash > 0 ? filePath.substring(lastSlash + 1) : filePath;
     const ext = file.name.split('.').pop()?.toLowerCase();
 
     const commandMap = {
-      'js': `node "${filePath}"`,
-      'jsx': `node "${filePath}"`,
-      'ts': `npx ts-node "${filePath}"`,
-      'tsx': `npx ts-node "${filePath}"`,
-      'py': `python "${filePath}"`,
-      'java': `java "${filePath.replace('.java', '')}"`,
-      'cpp': `g++ "${filePath}" -o out && ./out`,
-      'c': `gcc "${filePath}" -o out && ./out`,
-      'go': `go run "${filePath}"`,
-      'rs': `rustc "${filePath}" && ./${file.name.replace('.rs', '')}`,
-      'rb': `ruby "${filePath}"`,
-      'php': `php "${filePath}"`,
-      'sh': `bash "${filePath}"`,
+      'js': `node "${fileName}"`,
+      'jsx': `node "${fileName}"`,
+      'ts': `npx ts-node "${fileName}"`,
+      'tsx': `npx ts-node "${fileName}"`,
+      'py': `python "${fileName}"`,
+      'java': `javac "${fileName}"; if ($?) { java "${fileName.replace('.java', '')}" }`,
+      'cpp': `g++ "${fileName}" -o out.exe; if ($?) { .\\out.exe }`,
+      'c': `gcc "${fileName}" -o out.exe; if ($?) { .\\out.exe }`,
+      'go': `go run "${fileName}"`,
+      'rs': `rustc "${fileName}"; if ($?) { .\\${fileName.replace('.rs', '.exe')} }`,
+      'rb': `ruby "${fileName}"`,
+      'php': `php "${fileName}"`,
+      'sh': `sh "${fileName}"`,
     };
 
-    const cmd = commandMap[ext];
+    let cmd = commandMap[ext];
     if (cmd) {
+      // Prefix with cd to file's directory if it's in a subfolder
+      if (fileDir) {
+        cmd = `cd "${fileDir}" ; ${cmd}`;
+      }
+
+      // Sync files to workspace before running
+      const syncData = getStudentFilesForSync();
+      if (syncData) {
+        console.log('📁 Student: syncing files before run');
+        socket.emit('terminal-sync', { files: syncData.files, fileContents: syncData.fileContents });
+      }
+
       setPendingRunCommand(cmd);
       setShowTerminal(true);
       setTimeout(() => setPendingRunCommand(null), 2000);
     }
-  }, [localFS, socket]);
+  }, [localFS, socket, getStudentFilesForSync]);
 
   // Track and send syntax-error status to the teacher's dashboard
   const lastErrorStateRef = useRef(false);

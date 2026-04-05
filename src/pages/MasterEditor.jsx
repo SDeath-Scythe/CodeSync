@@ -172,15 +172,15 @@ function MasterEditorContent({ sessionInfo }) {
                 };
         }, [fileStructure, fileContents]);
 
-        // Handle workspace update from terminal (reverse sync)
+        // Handle workspace update from terminal (full replace - import from workspace)
         const handleWorkspaceUpdate = useCallback((data) => {
-                console.log('📂 Merging workspace files into app:', data.stats);
+                console.log('📂 Replacing editor files with workspace:', data.stats);
 
-                if (mergeWorkspaceFiles) {
-                        // Merge the new files into the existing structure
-                        mergeWorkspaceFiles(data.files, data.fileContents);
+                if (loadFromSession) {
+                        // Full replace: swap the editor's file tree with the workspace data
+                        loadFromSession(data.files, data.fileContents);
                 }
-        }, [mergeWorkspaceFiles]);
+        }, [loadFromSession]);
 
         // Helper to get full file path from file structure
         const buildFilePath = useCallback((items, targetId, currentPath = '') => {
@@ -197,7 +197,7 @@ function MasterEditorContent({ sessionInfo }) {
                 return null;
         }, []);
 
-        // Handle Run Code - syncs files and runs current file in terminal
+        // Handle Run Code - syncs files to workspace, then runs current file in terminal
         const handleRunCode = useCallback(() => {
                 if (!activeFileId || !socket) return;
 
@@ -209,24 +209,29 @@ function MasterEditorContent({ sessionInfo }) {
                 const filePath = buildFilePath(fileStructure, activeFileId) || activeFile.name;
                 console.log('🚀 Running file:', filePath);
 
-                // Determine run command based on file extension
+                // Extract directory and filename for cd + run
+                const lastSlash = filePath.lastIndexOf('/');
+                const fileDir = lastSlash > 0 ? filePath.substring(0, lastSlash) : '';
+                const fileName = lastSlash > 0 ? filePath.substring(lastSlash + 1) : filePath;
+
+                // Determine run command based on file extension (uses just the filename)
                 const ext = activeFile.name.split('.').pop()?.toLowerCase();
                 let runCommand = '';
 
                 const commandMap = {
-                        'js': `node "${filePath}"`,
-                        'jsx': `node "${filePath}"`,
-                        'ts': `npx ts-node "${filePath}"`,
-                        'tsx': `npx ts-node "${filePath}"`,
-                        'py': `python "${filePath}"`,
-                        'java': `java "${filePath.replace('.java', '')}"`,
-                        'cpp': `g++ "${filePath}" -o out && ./out`,
-                        'c': `gcc "${filePath}" -o out && ./out`,
-                        'go': `go run "${filePath}"`,
-                        'rs': `rustc "${filePath}" && ./${activeFile.name.replace('.rs', '')}`,
-                        'rb': `ruby "${filePath}"`,
-                        'php': `php "${filePath}"`,
-                        'sh': `bash "${filePath}"`,
+                        'js': `node "${fileName}"`,
+                        'jsx': `node "${fileName}"`,
+                        'ts': `npx ts-node "${fileName}"`,
+                        'tsx': `npx ts-node "${fileName}"`,
+                        'py': `python "${fileName}"`,
+                        'java': `javac "${fileName}"; if ($?) { java "${fileName.replace('.java', '')}" }`,
+                        'cpp': `g++ "${fileName}" -o out.exe; if ($?) { .\\out.exe }`,
+                        'c': `gcc "${fileName}" -o out.exe; if ($?) { .\\out.exe }`,
+                        'go': `go run "${fileName}"`,
+                        'rs': `rustc "${fileName}"; if ($?) { .\\${fileName.replace('.rs', '.exe')} }`,
+                        'rb': `ruby "${fileName}"`,
+                        'php': `php "${fileName}"`,
+                        'sh': `sh "${fileName}"`,
                 };
 
                 runCommand = commandMap[ext] || '';
@@ -234,6 +239,21 @@ function MasterEditorContent({ sessionInfo }) {
                 if (!runCommand) {
                         console.warn('No run command for extension:', ext);
                         return;
+                }
+
+                // Prefix with cd to file's directory if it's in a subfolder
+                if (fileDir) {
+                        runCommand = `cd "${fileDir}" ; ${runCommand}`;
+                }
+
+                // Sync files to workspace before running
+                const syncData = getFilesForSync();
+                if (syncData) {
+                        console.log('📁 Syncing files before run:', {
+                                filesCount: syncData.files?.length,
+                                contentsCount: Object.keys(syncData.fileContents || {}).length
+                        });
+                        socket.emit('terminal-sync', { files: syncData.files, fileContents: syncData.fileContents });
                 }
 
                 // Set pending command and auto-start flag
@@ -250,7 +270,7 @@ function MasterEditorContent({ sessionInfo }) {
                         setPendingRunCommand(null);
                         setAutoStartTerminal(false);
                 }, 3000);
-        }, [activeFileId, socket, fileStructure, findItemById, buildFilePath, showTerminal]);
+        }, [activeFileId, socket, fileStructure, findItemById, buildFilePath, showTerminal, getFilesForSync]);
 
         // Determine what to show based on fullscreen mode
         const showSidebarPanel = fullscreenMode === null && showSidebar;

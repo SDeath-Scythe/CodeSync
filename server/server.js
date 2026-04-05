@@ -73,13 +73,31 @@ app.get('/auth/github', (req, res) => {
   const redirectUri = `${process.env.SERVER_URL || 'http://localhost:3001'}/auth/github/callback`;
   const scope = 'read:user user:email';
 
-  const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}`;
+  // Encode the selected role in the state parameter so we can read it in the callback
+  const role = req.query.role || 'student';
+  const state = Buffer.from(JSON.stringify({ role })).toString('base64');
+
+  const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&state=${encodeURIComponent(state)}`;
 
   res.redirect(githubAuthUrl);
 });
 
 app.get('/auth/github/callback', async (req, res) => {
-  const { code } = req.query;
+  const { code, state } = req.query;
+
+  // Decode the role from the state parameter
+  let selectedRole = 'pending';
+  if (state) {
+    try {
+      const decoded = JSON.parse(Buffer.from(state, 'base64').toString());
+      if (decoded.role === 'teacher' || decoded.role === 'student') {
+        selectedRole = decoded.role;
+      }
+      // If no valid role in state, keep 'pending' — user will choose after login
+    } catch (e) {
+      console.warn('Could not decode OAuth state, defaulting to student');
+    }
+  }
   const clientId = process.env.GITHUB_CLIENT_ID;
   const clientSecret = process.env.GITHUB_CLIENT_SECRET;
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -153,7 +171,7 @@ app.get('/auth/github/callback', async (req, res) => {
         avatar: githubUser.avatar_url,
         provider: 'github',
         providerId: githubUser.id.toString(),
-        role: 'student'
+        role: selectedRole
       }
     });
 
@@ -178,7 +196,7 @@ app.get('/auth/github/callback', async (req, res) => {
 
 // Register with email/password
 app.post('/auth/register', async (req, res) => {
-  const { email, password, name, role = 'student' } = req.body;
+  const { email, password, name, role = 'pending' } = req.body;
 
   if (!email || !password || !name) {
     return res.status(400).json({ error: 'Email, password, and name are required' });
@@ -188,7 +206,7 @@ app.post('/auth/register', async (req, res) => {
     return res.status(400).json({ error: 'Password must be at least 6 characters' });
   }
 
-  if (!['teacher', 'student'].includes(role)) {
+  if (!['teacher', 'student', 'pending'].includes(role)) {
     return res.status(400).json({ error: 'Invalid role' });
   }
 

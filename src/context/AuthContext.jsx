@@ -44,17 +44,12 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   // Login with GitHub
-  const loginWithGitHub = () => {
-    authService.loginWithGitHub();
-  };
-
-  // Login with Google
-  const loginWithGoogle = () => {
-    authService.loginWithGoogle();
+  const loginWithGitHub = (role = 'student') => {
+    authService.loginWithGitHub(role);
   };
 
   // Register with email/password
-  const register = async (name, email, password, role = 'student') => {
+  const register = async (name, email, password, role = 'pending') => {
     setLoading(true);
     setError(null);
     
@@ -135,7 +130,6 @@ export const AuthProvider = ({ children }) => {
     isTeacher,
     isStudent,
     loginWithGitHub,
-    loginWithGoogle,
     register,
     login,
     handleAuthCallback,
