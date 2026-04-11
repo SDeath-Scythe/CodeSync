@@ -531,7 +531,7 @@ function MasterEditor() {
         const [sessionInfo, setSessionInfo] = useState(null);
         const hasCheckedSession = useRef(false);
 
-        // Load session from localStorage - run only once
+        // Load session from localStorage and verify ownership with server
         useEffect(() => {
                 if (hasCheckedSession.current) return;
                 hasCheckedSession.current = true;
@@ -541,15 +541,33 @@ function MasterEditor() {
                         try {
                                 const session = JSON.parse(storedSession);
 
-                                // Only the session owner (teacher who created it) can use the editor
+                                // Quick client-side check first
                                 if (!session.isOwner) {
                                         console.warn('🚫 Not the session owner, redirecting to classroom');
-                                        toast.warning('Access Denied', 'Only the session creator can access the editor. Redirecting to classroom...');
+                                        toast.warning('Access Denied', 'Only the session creator can access the editor.');
                                         navigate('/classroom', { replace: true });
                                         return;
                                 }
 
-                                setSessionInfo(session);
+                                // Verify ownership with the server to prevent stale localStorage bypass
+                                import('../services/sessionService').then(({ default: sessionService }) => {
+                                        sessionService.joinSession(session.code).then((freshSession) => {
+                                                if (!freshSession.isOwner) {
+                                                        console.warn('🚫 Server confirmed: not the owner, redirecting');
+                                                        localStorage.setItem('codesync_current_session', JSON.stringify(freshSession));
+                                                        toast.warning('Access Denied', 'Only the session creator can access the editor.');
+                                                        navigate('/classroom', { replace: true });
+                                                        return;
+                                                }
+                                                // Update localStorage with fresh data and proceed
+                                                localStorage.setItem('codesync_current_session', JSON.stringify(freshSession));
+                                                setSessionInfo(freshSession);
+                                        }).catch((err) => {
+                                                console.error('Session verification failed:', err);
+                                                // Fall back to stored session if server is unreachable
+                                                setSessionInfo(session);
+                                        });
+                                });
                         } catch (err) {
                                 console.error('Failed to parse session:', err);
                                 toast.error('Error', 'Invalid session data');

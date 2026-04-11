@@ -102,7 +102,7 @@ const VideoTile = ({ user, stream, isLocal = false }) => {
                                 <span className="truncate max-w-[80px]">
                                         {user?.isScreenSharing ? 'Screen' : (isLocal ? 'You' : (user?.name || user?.userName || 'User'))}
                                 </span>
-                                {(user?.role === "teacher" || user?.isHost) && !user?.isScreenSharing && (
+                                {(user?.isOwner || user?.isHost) && !user?.isScreenSharing && (
                                         <span className="text-indigo-300 text-[9px] uppercase font-bold tracking-wide px-1.5 py-0.5 bg-indigo-500/20 rounded">HOST</span>
                                 )}
                         </div>
@@ -120,7 +120,7 @@ const ChatBubble = ({ msg, isNew, currentUserId }) => {
         // Handle both old format and new server format
         const senderName = msg.sender?.name || msg.sender || 'Unknown';
         const senderAvatar = msg.sender?.avatar || msg.avatar || null;
-        const isInstructor = msg.sender?.role === 'teacher' || msg.isInstructor;
+        const isInstructor = msg.sender?.isOwner || msg.isInstructor;
         const isOwnMessage = msg.sender?.id === currentUserId;
         const time = msg.timestamp 
                 ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -484,7 +484,7 @@ const ClassroomPanel = ({ onClose, isFullscreen = false, onToggleFullscreen }) =
                                                                 <VideoTile 
                                                                         user={{
                                                                                 name: user?.name || 'You',
-                                                                                role: user?.role,
+                                                                                isOwner: user?.isOwner,
                                                                                 audioEnabled: isAudioEnabled,
                                                                                 videoEnabled: isVideoEnabled,
                                                                                 isHost: true
@@ -550,7 +550,7 @@ const ClassroomPanel = ({ onClose, isFullscreen = false, onToggleFullscreen }) =
                                                                                         </div>
                                                                                         <div className="flex-1 min-w-0">
                                                                                                 <div className="text-sm text-zinc-300 truncate">{p.name || 'Unknown'}</div>
-                                                                                                <div className="text-xs text-zinc-500">{p.role === 'teacher' ? 'Host' : 'Student'}</div>
+                                                                                                <div className="text-xs text-zinc-500">{p.isOwner ? 'Host' : 'Student'}</div>
                                                                                         </div>
                                                                                         <div className="w-2 h-2 bg-green-500 rounded-full" title="Online" />
                                                                                 </div>
