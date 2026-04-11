@@ -141,6 +141,14 @@ export const LocalFileSystemProvider = ({ children }) => {
 
     setFileStructure(prev => addToParent(prev));
     setFileContents(prev => ({ ...prev, [newId]: '' }));
+
+    // Auto-open the newly created file
+    setOpenFiles(prev => {
+      if (prev.some(f => f.id === newId)) return prev;
+      return [...prev, { id: newId, name: fileName, unsaved: false }];
+    });
+    setActiveFileId(newId);
+
     return newId;
   }, []);
 

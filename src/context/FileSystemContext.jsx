@@ -149,6 +149,13 @@ export const FileSystemProvider = ({ children }) => {
         ...prev,
         [newItem.id]: getDefaultContent(name)
       }));
+
+      // Auto-open the newly created file (do it here to avoid stale state)
+      setOpenFiles(prev => {
+        if (prev.some(f => f.id === newItem.id)) return prev;
+        return [...prev, { id: newItem.id, name: newItem.name, unsaved: false }];
+      });
+      setActiveFileId(newItem.id);
     }
 
     setFileStructure(prev => {

@@ -172,15 +172,19 @@ function MasterEditorContent({ sessionInfo }) {
                 };
         }, [fileStructure, fileContents]);
 
-        // Handle workspace update from terminal (full replace - import from workspace)
+        // Handle workspace update from terminal (auto-sync from file watcher)
+        // Uses merge to preserve open tabs and active file
         const handleWorkspaceUpdate = useCallback((data) => {
-                console.log('📂 Replacing editor files with workspace:', data.stats);
+                console.log('📂 Updating editor files from workspace:', data.stats);
 
-                if (loadFromSession) {
-                        // Full replace: swap the editor's file tree with the workspace data
+                if (data.fullReplace && loadFromSession) {
+                        // Full replace: explicit "Import from workspace" button click
                         loadFromSession(data.files, data.fileContents);
+                } else if (mergeWorkspaceFiles) {
+                        // Merge: auto-sync from file watcher — preserves tabs & active file
+                        mergeWorkspaceFiles(data.files, data.fileContents);
                 }
-        }, [loadFromSession]);
+        }, [loadFromSession, mergeWorkspaceFiles]);
 
         // Helper to get full file path from file structure
         const buildFilePath = useCallback((items, targetId, currentPath = '') => {

@@ -52,14 +52,18 @@ function StudentClassroomContent({ sessionInfo }) {
     };
   }, [localFS.fileStructure, localFS.fileContents]);
 
-  // Handle workspace updates from the server (full replace - import from workspace)
-  // This replaces the file explorer when "Import from workspace" is clicked
+  // Handle workspace updates from the server
+  // Auto-sync uses merge (preserves tabs/active file), explicit import uses full replace
   const handleWorkspaceUpdate = useCallback((data) => {
-    console.log('📂 Student: replacing editor files with workspace:', data.stats);
-    if (loadStudentFiles) {
+    console.log('📂 Student: updating editor files from workspace:', data.stats);
+    if (data.fullReplace && loadStudentFiles) {
+      // Full replace: explicit "Import from workspace" button click
       loadStudentFiles(data.files, data.fileContents);
+    } else if (localFS.mergeWorkspaceFiles) {
+      // Merge: auto-sync from file watcher — preserves tabs & active file
+      localFS.mergeWorkspaceFiles(data.files, data.fileContents);
     }
-  }, [loadStudentFiles]);
+  }, [loadStudentFiles, localFS.mergeWorkspaceFiles]);
 
   // Handle Run Code - syncs files to workspace, then runs
   const handleRunCode = useCallback(() => {

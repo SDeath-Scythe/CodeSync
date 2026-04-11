@@ -1577,7 +1577,8 @@ io.on('connection', (socket) => {
         files: result.files,
         fileContents: result.fileContents,
         stats: result.stats,
-        workspacePath
+        workspacePath,
+        fullReplace: true  // Signal to client to do full replace (not merge)
       });
     } catch (error) {
       console.error('Read workspace error:', error);
