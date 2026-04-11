@@ -166,14 +166,19 @@ function StudentClassroomContent({ sessionInfo }) {
 
     const handleTeacherTreeUpdate = ({ fileStructure, fileContents }) => {
       console.log('📂 Received teacher file tree update in real-time');
-      if (loadTeacherFiles && fileStructure) {
-        loadTeacherFiles(fileStructure, fileContents || {});
+      if (fileStructure) {
+        // Use merge to preserve the student's currently open teacher file tab
+        if (globalFS.mergeWorkspaceFiles) {
+          globalFS.mergeWorkspaceFiles(fileStructure, fileContents || {});
+        } else if (loadTeacherFiles) {
+          loadTeacherFiles(fileStructure, fileContents || {});
+        }
       }
     };
 
     socket.on('teacher-tree-update', handleTeacherTreeUpdate);
     return () => socket.off('teacher-tree-update', handleTeacherTreeUpdate);
-  }, [socket, loadTeacherFiles]);
+  }, [socket, globalFS.mergeWorkspaceFiles, loadTeacherFiles]);
 
   // Snapshot: listen for availability and check on join
   useEffect(() => {

@@ -172,28 +172,38 @@ function MasterEditorContent({ sessionInfo }) {
                 };
         }, [fileStructure, fileContents]);
 
-        // Broadcast teacher file tree to students in real-time (debounced)
+        // Broadcast teacher file tree to students in real-time
+        // Only fires on STRUCTURE changes (create/delete/rename), NOT content changes
         const treeUpdateTimer = useRef(null);
         const initialLoadDone = useRef(false);
+        const prevStructureRef = useRef(null);
 
         useEffect(() => {
                 // Skip the initial load (don't broadcast db-loaded files)
                 if (!initialLoadDone.current) {
-                        if (filesReady) initialLoadDone.current = true;
+                        if (filesReady) {
+                                initialLoadDone.current = true;
+                                prevStructureRef.current = JSON.stringify(fileStructure);
+                        }
                         return;
                 }
 
                 if (!socket || !fileStructure || fileStructure.length === 0) return;
 
-                // Debounce to avoid flooding on rapid changes
+                // Only broadcast if the structure actually changed (not just content edits)
+                const currentStructure = JSON.stringify(fileStructure);
+                if (currentStructure === prevStructureRef.current) return;
+                prevStructureRef.current = currentStructure;
+
+                // Debounce to batch rapid changes
                 if (treeUpdateTimer.current) clearTimeout(treeUpdateTimer.current);
                 treeUpdateTimer.current = setTimeout(() => {
-                        console.log('📂 Broadcasting teacher file tree to students');
+                        console.log('📂 Broadcasting teacher file tree to students (structure changed)');
                         socket.emit('teacher-tree-update', {
                                 fileStructure,
                                 fileContents
                         });
-                }, 500);
+                }, 300);
 
                 return () => {
                         if (treeUpdateTimer.current) clearTimeout(treeUpdateTimer.current);
