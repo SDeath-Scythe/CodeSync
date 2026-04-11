@@ -160,6 +160,21 @@ function StudentClassroomContent({ sessionInfo }) {
     return () => socket.off('toggle-remote-cursors', handleToggleCursors);
   }, [socket]);
 
+  // Listen for real-time teacher file tree updates (create/delete/rename)
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleTeacherTreeUpdate = ({ fileStructure, fileContents }) => {
+      console.log('📂 Received teacher file tree update in real-time');
+      if (loadTeacherFiles && fileStructure) {
+        loadTeacherFiles(fileStructure, fileContents || {});
+      }
+    };
+
+    socket.on('teacher-tree-update', handleTeacherTreeUpdate);
+    return () => socket.off('teacher-tree-update', handleTeacherTreeUpdate);
+  }, [socket, loadTeacherFiles]);
+
   // Snapshot: listen for availability and check on join
   useEffect(() => {
     if (!socket) return;

@@ -172,6 +172,34 @@ function MasterEditorContent({ sessionInfo }) {
                 };
         }, [fileStructure, fileContents]);
 
+        // Broadcast teacher file tree to students in real-time (debounced)
+        const treeUpdateTimer = useRef(null);
+        const initialLoadDone = useRef(false);
+
+        useEffect(() => {
+                // Skip the initial load (don't broadcast db-loaded files)
+                if (!initialLoadDone.current) {
+                        if (filesReady) initialLoadDone.current = true;
+                        return;
+                }
+
+                if (!socket || !fileStructure || fileStructure.length === 0) return;
+
+                // Debounce to avoid flooding on rapid changes
+                if (treeUpdateTimer.current) clearTimeout(treeUpdateTimer.current);
+                treeUpdateTimer.current = setTimeout(() => {
+                        console.log('📂 Broadcasting teacher file tree to students');
+                        socket.emit('teacher-tree-update', {
+                                fileStructure,
+                                fileContents
+                        });
+                }, 500);
+
+                return () => {
+                        if (treeUpdateTimer.current) clearTimeout(treeUpdateTimer.current);
+                };
+        }, [fileStructure, fileContents, socket, filesReady]);
+
         // Handle workspace update from terminal (auto-sync from file watcher)
         // Uses merge to preserve open tabs and active file
         const handleWorkspaceUpdate = useCallback((data) => {

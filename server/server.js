@@ -1176,6 +1176,27 @@ io.on('connection', (socket) => {
     socket.to(currentSession).emit('file-renamed', { oldPath, newPath, newName, userId: currentUser?.id });
   });
 
+  // Teacher broadcasts their full file tree to all students in real-time
+  // This fires when the teacher creates, deletes, renames files/folders
+  socket.on('teacher-tree-update', ({ fileStructure, fileContents }) => {
+    if (!currentSession || !currentUser) return;
+
+    // Only the session owner should broadcast tree updates
+    const session = sessionUsers.get(currentSession);
+    const userEntry = session?.get(socket.id);
+    if (!userEntry?.isOwner) return;
+
+    console.log(`📂 Teacher ${currentUser.name} broadcasting file tree update`);
+
+    // Relay to all other users in the session
+    socket.to(currentSession).emit('teacher-tree-update', {
+      fileStructure,
+      fileContents,
+      teacherId: currentUser.id,
+      teacherName: currentUser.name
+    });
+  });
+
   // Chat message
   socket.on('chat-message', async ({ content }) => {
     console.log('📨 Chat message received:', { content, currentSession, hasUser: !!currentUser });
