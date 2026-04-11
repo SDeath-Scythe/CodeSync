@@ -1034,6 +1034,9 @@ io.on('connection', (socket) => {
       currentSession = sessionCode.toUpperCase();
       currentUser = user;
 
+      // Check if this user is the session owner
+      const isOwner = session.ownerId === user.id;
+
       // Join the socket room
       socket.join(currentSession);
 
@@ -1054,6 +1057,7 @@ io.on('connection', (socket) => {
       sessionUsers.get(currentSession).set(socket.id, {
         ...user,
         socketId: socket.id,
+        isOwner,
         cursorPosition: null
       });
 
@@ -1069,17 +1073,19 @@ io.on('connection', (socket) => {
 
       // Notify others that user joined
       socket.to(currentSession).emit('user-joined', {
-        user,
+        user: { ...user, isOwner },
         participants: participantsWithFiles
       });
 
       // Send current participants with their files to joining user
       socket.emit('session-joined', {
         sessionCode: currentSession,
-        participants: participantsWithFiles
+        participants: participantsWithFiles,
+        isOwner,
+        sessionRole: isOwner ? 'teacher' : 'student'
       });
 
-      console.log(`👤 ${user.name} joined session ${currentSession}`);
+      console.log(`👤 ${user.name} joined session ${currentSession} as ${isOwner ? 'OWNER' : 'student'}`);
 
     } catch (error) {
       console.error('Join session error:', error);

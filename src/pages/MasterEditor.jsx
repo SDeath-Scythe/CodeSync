@@ -540,6 +540,15 @@ function MasterEditor() {
                 if (storedSession) {
                         try {
                                 const session = JSON.parse(storedSession);
+
+                                // Only the session owner (teacher who created it) can use the editor
+                                if (!session.isOwner) {
+                                        console.warn('🚫 Not the session owner, redirecting to classroom');
+                                        toast.warning('Access Denied', 'Only the session creator can access the editor. Redirecting to classroom...');
+                                        navigate('/classroom', { replace: true });
+                                        return;
+                                }
+
                                 setSessionInfo(session);
                         } catch (err) {
                                 console.error('Failed to parse session:', err);
