@@ -180,6 +180,21 @@ function StudentClassroomContent({ sessionInfo }) {
     return () => socket.off('teacher-tree-update', handleTeacherTreeUpdate);
   }, [socket, globalFS.mergeWorkspaceFiles, loadTeacherFiles]);
 
+  // Listen for teacher's real-time code edits and update teacher file contents
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleCodeUpdate = ({ fileId, content }) => {
+      // globalFS holds the teacher's read-only file tree — always update it
+      if (globalFS.updateFileContent && fileId && content !== undefined) {
+        globalFS.updateFileContent(fileId, content);
+      }
+    };
+
+    socket.on('code-update', handleCodeUpdate);
+    return () => socket.off('code-update', handleCodeUpdate);
+  }, [socket, globalFS.updateFileContent]);
+
   // Snapshot: listen for availability and check on join
   useEffect(() => {
     if (!socket) return;
