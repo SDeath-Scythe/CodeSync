@@ -630,17 +630,28 @@ const CodeEditor = ({
     if (!editor) return;
 
     const model = editor.getModel();
+    if (!model) return;
 
-    // Safely inject the text without moving the local cursor
-    // executeEdits preserves the undo stack and cursor position better than setValue
     if (latestChange.content !== model.getValue()) {
-      editor.executeEdits("remote-sync", [{
+      // If the editor is read-only (e.g. student watching teacher), temporarily
+      // unlock it to apply the remote edit, then restore read-only status.
+      const wasReadOnly = editor.getOption(monacoRef.current?.editor?.EditorOption?.readOnly ?? 77);
+      if (wasReadOnly) {
+        editor.updateOptions({ readOnly: false });
+      }
+
+      // executeEdits preserves cursor position and undo stack
+      editor.executeEdits('remote-sync', [{
         range: model.getFullModelRange(),
         text: latestChange.content,
         forceMoveMarkers: true
       }]);
 
-      // Still update the context behind the scenes so the file saves correctly
+      if (wasReadOnly) {
+        editor.updateOptions({ readOnly: true });
+      }
+
+      // Update the context so the file saves correctly
       updateFileContent(activeFileId, latestChange.content);
     }
 
